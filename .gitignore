@@ -1,0 +1,21 @@
+# secrets / local config
+.env
+.env.*
+!.env.example
+*.local.*
+firmware/include/secrets.h
+
+# node
+node_modules/
+dist/
+
+# platformio
+firmware/.pio/
+firmware/.vscode/
+
+# agent / workflow logs
+.agent/logs/
+.claude/handoff/
+
+# OS
+.DS_Store
