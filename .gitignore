@@ -8,10 +8,13 @@ firmware/include/secrets.h
 # node
 node_modules/
 dist/
+coverage/
+*.tsbuildinfo
 
 # platformio
 firmware/.pio/
 firmware/.vscode/
+.pio/
 
 # agent / workflow logs
 .agent/logs/
