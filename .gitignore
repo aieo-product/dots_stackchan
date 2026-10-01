@@ -19,3 +19,5 @@ firmware/.vscode/
 
 # OS
 .DS_Store
+spikes/**/node_modules/
+spikes/mcp-echo/.funnel-path
