@@ -28,6 +28,23 @@ This is an OSS project. Never commit or paste personal information (tailnet host
 e-mail addresses, real names, API keys, voice recordings) into code, issues, PRs, or evidence.
 See [docs/privacy.md](docs/privacy.md).
 
+## Development
+
+Node.js 22 以上と PlatformIO が必要です。
+
+```sh
+npm install
+npm run check
+bash scripts/test/pii.test.sh
+bash scripts/check-pii.sh
+cd firmware && pio run
+```
+
+`npm run check` は lint、型検査、テスト、個人情報チェックを順に実行します。ログを共有する前には
+`scripts/redact.sh` を通してください。`spikes/` は試作コードのため Node.js の lint・型検査対象外です。
+
+開発への参加方法は [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
+
 ## License
 
 MIT
