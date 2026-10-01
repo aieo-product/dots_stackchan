@@ -1,0 +1,11 @@
+exit code: 0 (PR branch HEAD clean)
+
+    ○
+    │╲
+    │ ○
+    ○ ░
+    ░    gitleaks
+
+4:43PM INF 9 commits scanned.
+4:43PM INF scanned ~151986 bytes (151.99 KB) in 82.3ms
+4:43PM INF no leaks found

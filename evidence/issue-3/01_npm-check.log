@@ -1,0 +1,30 @@
+
+> <redacted:email> check
+> npm run lint && npm run typecheck && npm run test && npm run check:pii
+
+
+> <redacted:email> lint
+> eslint .
+
+
+> <redacted:email> typecheck
+> tsc --noEmit
+
+
+> <redacted:email> test
+> vitest run
+
+
+ RUN  v3.2.7 .
+
+ ✓ bridge/test/smoke.test.ts (1 test) 1ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:42:43
+   Duration  216ms (transform 61ms, setup 0ms, collect 56ms, tests 1ms, environment 0ms, prepare 40ms)
+
+
+> <redacted:email> check:pii
+> bash scripts/check-pii.sh
+

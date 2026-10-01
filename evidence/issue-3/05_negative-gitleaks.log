@@ -1,0 +1,21 @@
+exit code: 1 (expected: secret detected)
+
+    ○
+    │╲
+    │ ○
+    ○ ░
+    ░    gitleaks
+
+Finding:     SLACK_BOT_TOKEN=REDACTED
+Secret:      REDACTED
+RuleID:      slack-bot-token
+Entropy:     4.655046
+File:        secret-fixture.txt
+Line:        1
+Commit:      dab3a432de74ec9768c941fc41ae912959e7a906
+Date:        2026-10-01T07:42:55Z
+Fingerprint: dab3a432de74ec9768c941fc41ae912959e7a906:secret-fixture.txt:slack-bot-token:1
+
+4:43PM INF 11 commits scanned.
+4:43PM INF scanned ~152115 bytes (152.12 KB) in 89.6ms
+4:43PM WRN leaks found: 1

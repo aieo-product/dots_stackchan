@@ -1,0 +1,7 @@
+ok - redact positive cases
+ok - redact negative cases
+ok - scanner positive case
+ok - scanner negative case
+ok - scanner mixed line
+ok - redact keeps boundaries
+6 tests passed

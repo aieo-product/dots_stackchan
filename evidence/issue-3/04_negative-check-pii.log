@@ -1,0 +1,4 @@
+exit code: 1 (expected: violations detected)
+ci-negative-fixture.txt:1:tsnet:<redacted:tsnet>
+ci-negative-fixture.txt:2:private-ip:<redacted:private-ip>
+secret-fixture.txt:1:slack-token:<redacted:slack-token>
