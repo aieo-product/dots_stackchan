@@ -41,5 +41,30 @@ line=$(printf '%s\n' 'ip=10.2.3.4 next' | bash "$root/scripts/redact.sh")
 [ "$line" = 'ip=<redacted:private-ip> next' ] || fail "redact keeps boundaries: $line"
 pass 'redact keeps boundaries'
 
+printf '%s\n' 'NODE.PRIVATE.TS.NET /Users/alice ghp_aaaaaaaaaaaaaaaaaaaaaaaa AKIAAAAAAAAAAAAAAAAA xoxc-1 eyJhbGciOiJub25lIn0.eyJzdWIiOiJ4In0.sig' > "$fixture"
+bash "$root/scripts/check-pii.sh" > "$tmpdir/check-more.out" && fail 'extra patterns'
+for k in tsnet local-path github-token aws-key slack-token jwt; do
+  grep -q ":$k:" "$tmpdir/check-more.out" || fail "extra pattern $k"
+done
+pass 'scanner extra patterns'
+
 rm -f "$fixture"
-printf '6 tests passed\n'
+# --diff mode: a value added in one commit and removed in the next must still be reported
+repo="$tmpdir/repo"
+git init -q "$repo"
+mkdir -p "$repo/scripts"
+cp "$root/scripts/check-pii.sh" "$root/scripts/pii-patterns.txt" "$repo/scripts/"
+cp "$root/.pii-allowlist" "$repo/"
+(
+  cd "$repo"
+  git -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m base
+  printf 'host demo.fake-net.ts.net\n' > leak.txt
+  git add -A && git -c user.name=t -c user.email=t@example.com commit -q -m add
+  git rm -q leak.txt && git -c user.name=t -c user.email=t@example.com commit -q -m remove
+  bash scripts/check-pii.sh > "$tmpdir/wt.out" || exit 11
+  bash scripts/check-pii.sh --diff HEAD~2..HEAD > "$tmpdir/diff.out" && exit 12
+  grep -q 'leak.txt:[0-9a-f]*:+:tsnet' "$tmpdir/diff.out" || exit 13
+) || fail "diff mode (code $?)"
+pass 'scanner diff mode catches removed leaks'
+
+printf '8 tests passed\n'

@@ -12,5 +12,4 @@ path:^scripts/test/pii[.]test[.]sh$
 <your-host>
 your-tailnet[.]ts[.]net
 [*][.]ts[.]net
-^/(Users|home)/<name>/$
 ^git@github[.]com$
