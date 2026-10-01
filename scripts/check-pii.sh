@@ -44,7 +44,7 @@ while IFS= read -r -d '' file; do
           sub(/[^[:alnum:]_.>@\/-]$/, "", trimmed)
           permitted = 0
           for (a = 1; a <= na; a++) {
-            if (trimmed ~ allow[a] || line ~ allow[a]) permitted = 1
+            if (trimmed ~ allow[a]) permitted = 1
           }
           if (!permitted) {
             printf "%s:%d:%s:<redacted:%s>\n", source, FNR, kind[p], kind[p]

@@ -33,5 +33,13 @@ bash "$root/scripts/check-pii.sh" > "$tmpdir/check-safe.out" || fail 'scanner al
 [ ! -s "$tmpdir/check-safe.out" ] || fail 'scanner safe output'
 pass 'scanner negative case'
 
+printf '%s\n' 'see docs@example.com or node.personal-tailnet.ts.net' > "$fixture"
+if bash "$root/scripts/check-pii.sh" > "$tmpdir/check-mixed.out"; then fail 'allowlisted value must not hide others on the same line'; fi
+pass 'scanner mixed line'
+
+line=$(printf '%s\n' 'ip=10.2.3.4 next' | bash "$root/scripts/redact.sh")
+[ "$line" = 'ip=<redacted:private-ip> next' ] || fail "redact keeps boundaries: $line"
+pass 'redact keeps boundaries'
+
 rm -f "$fixture"
-printf '4 tests passed\n'
+printf '6 tests passed\n'

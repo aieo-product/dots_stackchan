@@ -41,9 +41,13 @@ awk -v allowfile="$allowlist" '
       sub(/[^[:alnum:]_.>@\/-]$/, "", trimmed)
       permitted = 0
       for (a = 1; a <= na; a++) if (trimmed ~ allow[a]) permitted = 1
+      # keep boundary characters consumed by the pattern (e.g. "=" before an IP)
+      lead = ""; tail = ""
+      if (match(value, /^[^[:alnum:]\/<]/)) lead = substr(value, 1, 1)
+      if (match(value, /[^[:alnum:]_.>@\/-]$/)) tail = substr(value, length(value), 1)
       output = output substr(input, 1, first - 1)
       if (permitted) output = output value
-      else output = output "<redacted:" kind[chosen] ">"
+      else output = output lead "<redacted:" kind[chosen] ">" tail
       input = substr(input, first + chosen_length)
     }
     print output
