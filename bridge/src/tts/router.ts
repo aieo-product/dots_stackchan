@@ -17,9 +17,28 @@ export function isJapanese(text: string): boolean {
 }
 
 export class TtsRouter {
+  private readonly engines = new Set<TtsEngine>();
   constructor(private readonly options: RouterOptions,
     private readonly kana: KanaConverter,
     private readonly engine: (name: PcmEngineName) => TtsEngine) {}
+
+  private getEngine(name: PcmEngineName): TtsEngine {
+    const engine = this.engine(name);
+    this.engines.add(engine);
+    return engine;
+  }
+
+  /** Optional startup optimization; device-only routes still need no API key. */
+  async warmup(): Promise<void> {
+    if (this.options.VOICE_MODE !== 'bridge') return;
+    const names = new Set([this.options.TTS_ENGINE, this.options.NOTIFY_TTS_ENGINE]);
+    for (const name of names) if (name === 'openai') await this.getEngine(name).warmup?.();
+  }
+
+  async dispose(): Promise<void> {
+    await Promise.all([...this.engines].map(engine => engine.dispose?.()));
+    this.engines.clear();
+  }
 
   /** Invoke on connection/reconfiguration to show the selection before speaking. */
   announceMode(device: DeviceLink): void {
@@ -31,7 +50,7 @@ export class TtsRouter {
 
   async health(purpose: 'reply' | 'notification' = 'reply', signal?: AbortSignal): Promise<'ready' | 'unavailable' | 'unsupported'> {
     const name = (purpose === 'notification' ? this.options.NOTIFY_TTS_ENGINE : undefined) ?? this.options.TTS_ENGINE;
-    try { return await this.engine(name === 'sanotts' ? 'openai' : name).health?.(signal) ?? 'unsupported'; }
+    try { return await this.getEngine(name === 'sanotts' ? 'openai' : name).health?.(signal) ?? 'unsupported'; }
     catch { signal?.throwIfAborted(); return 'unavailable'; }
   }
 
@@ -44,7 +63,7 @@ export class TtsRouter {
     }
     const route = purpose === 'notification' ? this.options.NOTIFY_TTS_ENGINE ?? this.options.TTS_ENGINE : this.options.TTS_ENGINE;
     const name = route === 'sanotts' ? 'openai' : route;
-    const engine = this.engine(name);
+    const engine = this.getEngine(name);
     if (!engine.stream) return { route: name, audio: await abortable(engine.synthesize(text, signal), signal) };
     const iterator = engine.stream(text, signal)[Symbol.asyncIterator]();
     const abort = () => { void iterator.return?.().catch(() => undefined); };
@@ -71,6 +90,7 @@ export class TtsRouter {
     if (payload.route === 'sanotts') {
       if (!payload.kana) return;
       device.send({ type: 'speak.kana', seq, kana: payload.kana, ...(expression ? { expression } : {}) });
+      firstAudio?.();
       return;
     }
     if ('audio' in payload && (!payload.audio.data.byteLength || payload.audio.data.byteLength % 2)) throw new Error('Invalid PCM audio');

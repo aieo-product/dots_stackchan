@@ -111,3 +111,35 @@ test('empty text, cancellation and disposal settle all tickets', async () => {
  await expect(a.done).rejects.toThrow(); await expect(b.done).rejects.toThrow();
  queue.dispose(); await expect(queue.say('終了。').done).rejects.toThrow('disposed');
 });
+
+test.each(['openai', 'voicevox', 'local-http'] as const)('%s prefetch starts after the first frame for buffered and streaming engines', async route => {
+ for (const streaming of [false, true]) {
+  const order: string[] = [];
+  const device = new FakeDevice();
+  const originalSend = device.sendBinary.bind(device);
+  device.sendBinary = (kind, seq, data) => { order.push(`frame:${seq}`); originalSend(kind, seq, data); };
+  const synthesize = async (text: string) => {
+   order.push(`prepare:${text}`);
+   await new Promise(resolve => setTimeout(resolve, 30));
+   return { data: new Uint8Array(16000), sampleRate: 16000 as const };
+  };
+  const stream = async function* (text: string) { yield (await synthesize(text)).data; };
+  const queue = new SpeechQueue(device, new TtsRouter({ VOICE_MODE: 'bridge', TTS_ENGINE: route },
+   { convert: async text => text }, () => ({ synthesize, ...(streaming ? { stream } : {}) })));
+  queues.push(queue);
+  const ticket = queue.say('First! Second sentence. Third sentence is long.');
+  await vi.waitFor(() => expect(order).toContain('prepare:Second sentence.'));
+  expect(order.indexOf('prepare:Second sentence.')).toBeGreaterThan(order.indexOf('frame:1'));
+  expect(device.messages.some(message => message.type === 'tts.end')).toBe(false);
+  expect(order).not.toContain('prepare:Third sentence is long.');
+  await vi.waitFor(() => expect(device.messages).toContainEqual({ type: 'tts.end', seq: 1 }));
+  expect(device.binaries.every(frame => frame.seq === 1)).toBe(true);
+  device.done(1);
+  await vi.waitFor(() => expect(order).toContain('prepare:Third sentence is long.'));
+  expect(order.indexOf('prepare:Third sentence is long.')).toBeGreaterThan(order.indexOf('frame:2'));
+  await vi.waitFor(() => expect(device.messages).toContainEqual({ type: 'tts.end', seq: 2 }));
+  device.done(2);
+  await vi.waitFor(() => expect(device.messages).toContainEqual({ type: 'tts.end', seq: 3 }));
+  device.done(3); await ticket.done;
+ }
+}, 10000);

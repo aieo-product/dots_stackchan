@@ -9,7 +9,7 @@ import type { SttEngine } from "../stt/engine.js";
 import { createKanaConverter } from "../tts/create-kana.js";
 import { createTtsRouter } from "../tts/create-router.js";
 import { SpeechQueue } from "../tts/speech-queue.js";
-import type { KanaConverter } from "../tts/types.js";
+import type { KanaConverter, TtsLog } from "../tts/types.js";
 import type { Speaker } from "../tts/speaker.js";
 import { createNotificationCenter } from "../notify/center.js";
 import { createEvents } from "../events/index.js";
@@ -59,7 +59,14 @@ export async function startApp(options: AppOptions = {}) {
     cleanups.push(() => bridge.close());
     const device = new AppDevice(bridge.hub);
     cleanups.push(() => device.dispose());
-    const router = createTtsRouter(config.tts, kana, { openaiApiKey: config.bridge.openaiApiKey, localTtsToken: config.localTtsToken });
+    const ttsLog: TtsLog = (event, fields) => {
+      if (fields.level === "debug") logger.debug(event, fields);
+      else if (fields.level === "warn") logger.warn(event, fields);
+      else logger.info(event, fields);
+    };
+    const router = createTtsRouter(config.tts, kana, { openaiApiKey: config.bridge.openaiApiKey, localTtsToken: config.localTtsToken }, ttsLog);
+    cleanups.push(() => router.dispose());
+    await router.warmup().catch(() => logger.debug("tts.http_warmup", { ok: false }));
     let queue: SpeechQueue | undefined;
     let speechActive = false;
     const stopSpeech = () => { const current = queue; queue = undefined; current?.dispose(); speechActive = false; };
@@ -74,7 +81,7 @@ export async function startApp(options: AppOptions = {}) {
     device.on("connected", () => {
       queue?.dispose();
       const current = new SpeechQueue(device, router, { maxChars: config.tts.TTS_MAX_CHARS,
-        log: (event, fields) => logger.info(event, fields) });
+        log: ttsLog });
       queue = current;
       current.on("speaking", (active: boolean) => {
         if (queue !== current) return;

@@ -80,33 +80,43 @@ export class SpeechQueue extends EventEmitter implements Speaker {
         try {
           const sentences = segment(job.text);
           if (sentences.length) this.setSpeaking(true);
-          const prepare = (sentence: string) => {
+          const prepare = (sentence: string, index: number) => {
             const startedAt = performance.now();
+            this.log('tts.prepare', { level: 'debug', sentence: index + 1, prefetched: index > 0,
+              queuedToPrepareMs: startedAt - (job?.queuedAt ?? startedAt) });
             const promise = this.router.prepare(sentence, this.device, controller.signal, job?.purpose);
             // A prefetched failure belongs to the next sentence, not the active one.
             void promise.catch(() => undefined);
             return { startedAt, promise };
           };
-          let pending = sentences.length ? prepare(sentences[0]) : undefined;
+          let pending = sentences.length ? prepare(sentences[0], 0) : undefined;
           for (let index = 0; index < sentences.length; index++) {
             if (!pending) throw new Error('Speech preparation missing');
             const conversionAt = pending.startedAt;
             const payload = await pending.promise;
             controller.signal.throwIfAborted();
-            pending = index + 1 < sentences.length ? prepare(sentences[index + 1]) : undefined;
-            if (payload.route === 'sanotts' && !payload.kana) continue;
+            pending = undefined;
+            const prefetch = () => {
+              if (index + 1 < sentences.length) pending = prepare(sentences[index + 1], index + 1);
+            };
+            if (payload.route === 'sanotts' && !payload.kana) { prefetch(); continue; }
             // Never reuse an identifier in this connection. Wrap could accept a late done.
             if (this.sequence >= 65535) throw new Error('Speech sequence exhausted; create a new device session');
             const seq = ++this.sequence;
+            const sendAt = performance.now();
             await this.sendAndWait(seq, controller.signal, async () => {
               await this.router.send(payload, this.device, seq, controller.signal, job?.expression, () => {
-                this.log('tts.first_audio', { seq, route: payload.route,
-                  firstAudioMs: performance.now() - conversionAt,
-                  replyToFirstAudioMs: performance.now() - (job?.queuedAt ?? conversionAt),
+                const sentAt = performance.now();
+                if (payload.route !== 'sanotts') this.log('tts.first_audio', { seq, route: payload.route,
+                  firstAudioMs: sentAt - conversionAt,
+                  replyToFirstAudioMs: sentAt - (job?.queuedAt ?? conversionAt),
+                  firstFrameSendMs: sentAt - sendAt,
                   sentence: index + 1, targetMs: 800,
-                  targetMet: performance.now() - (index === 0 ? job?.queuedAt ?? conversionAt : conversionAt) <= 800 });
+                  targetMet: sentAt - (index === 0 ? job?.queuedAt ?? conversionAt : conversionAt) <= 800 });
+                prefetch();
               });
               this.log('tts.sent', { seq, route: payload.route,
+                sendMs: performance.now() - sendAt,
                 queuedToSendMs: performance.now() - (job?.queuedAt ?? conversionAt),
                 conversionToSendMs: performance.now() - conversionAt });
             });
