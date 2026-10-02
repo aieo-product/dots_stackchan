@@ -15,6 +15,6 @@ inline bool decodeBinary(const uint8_t* data, size_t length, BinaryFrame& frame)
   frame.seq = static_cast<uint16_t>(data[1]) | (static_cast<uint16_t>(data[2]) << 8);
   frame.payload = data + 3;
   frame.length = length - 3;
-  return frame.kind == 0x01 || frame.kind == 0x02;
+  return frame.kind == 0x01 || frame.kind == 0x02 || frame.kind == 0x03;
 }
 }

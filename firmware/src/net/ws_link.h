@@ -20,7 +20,7 @@ class WsLink {
              BinaryHandler binaryHandler, StatusHandler statusHandler);
   void update(bool wifiConnected);
   bool connected() const { return connected_; }
-  bool send(const String& text, const std::atomic<bool>* cancelled = nullptr);
+  bool send(const String& text, const std::atomic<bool>* cancelled = nullptr, bool nonblocking = false);
   bool sendBinary(uint8_t* data, size_t length, const std::atomic<bool>* cancelled = nullptr);
 
  private:

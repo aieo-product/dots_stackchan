@@ -34,10 +34,11 @@ describe("firmware native logic", () => {
   it("decodes the protocol v1 little endian sequence", () => {
     expect(run("binary", 2, 0x34, 0x12, 0, 1)).toBe("2,4660,2");
     expect(run("binary", 1, 255, 255)).toBe("1,65535,0");
+    expect(run("binary", 3, 1, 0, 0, 0)).toBe("3,1,2");
   });
   it("rejects truncated, unknown, and oversized binary frames", () => {
     expect(run("binary", 2, 0)).toBe("invalid");
-    expect(run("binary", 3, 0, 0)).toBe("invalid");
+    expect(run("binary", 4, 0, 0)).toBe("invalid");
     expect(run("binary", ...Array<number>(4097).fill(2))).toBe("invalid");
     expect(run("binary", 2, 0, 0, ...Array<number>(4093).fill(0))).toBe("2,0,4093");
   });

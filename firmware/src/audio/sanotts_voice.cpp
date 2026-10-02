@@ -76,10 +76,12 @@ bool SanoTtsVoice::available() const {
 #endif
 }
 
-bool SanoTtsVoice::start(uint16_t seq, const String& kana) {
+bool SanoTtsVoice::start(uint16_t seq, const String& kana, CacheHandler handler) {
 #if DOTS_SANOTTS
   if (!weightsOk || kana.isEmpty() || !exited_ || !player_) return false;
   if (pcm_ || active_) return false;
+  cacheHandler_ = std::move(handler);
+  cacheMode_ = static_cast<bool>(cacheHandler_);
   active_ = true;
   kana_ = kana;
   seq_ = seq;
@@ -96,18 +98,30 @@ bool SanoTtsVoice::start(uint16_t seq, const String& kana) {
   if (xTaskCreatePinnedToCore(taskEntry, "sanotts", 16384, this, 2, &task, 0) != pdPASS) {
     exited_ = true;
     active_ = false;
+    cacheHandler_ = nullptr;
     return false;
   }
   return true;
 #else
   (void)seq;
   (void)kana;
+  (void)handler;
+  return false;
+#endif
+}
+
+bool SanoTtsVoice::cache(const String& kana, CacheHandler handler) {
+#if DOTS_SANOTTS
+  return start(0, kana, std::move(handler));
+#else
+  (void)kana; (void)handler;
   return false;
 #endif
 }
 
 void SanoTtsVoice::cancel(bool notify) {
 #if DOTS_SANOTTS
+  if (cacheHandler_) { cacheHandler_ = nullptr; notify = false; }
   stop_ = true;
   if (notify && active_ && !startedPlayback_ && failureHandler_) failureHandler_(seq_);
   active_ = false;
@@ -121,6 +135,19 @@ void SanoTtsVoice::cancel(bool notify) {
 void SanoTtsVoice::update() {
 #if DOTS_SANOTTS
   if (releaseRequested_) releaseWhenSafe();
+  if (cacheHandler_) {
+    if (!exited_ || (!finished_ && !failed_)) return;
+    auto handler = std::move(cacheHandler_);
+    cacheHandler_ = nullptr;
+    int16_t* samples = failed_ ? nullptr : pcm_;
+    const size_t count = failed_ ? 0 : total_.load();
+    if (samples) pcm_ = nullptr;
+    failed_ = false;
+    releaseRequested_ = true;
+    releaseWhenSafe();
+    handler(samples, count, SAAN_SR);
+    return;
+  }
   if (failed_ && exited_) {
     failed_ = false;
     if (stop_) return;
@@ -180,7 +207,7 @@ void SanoTtsVoice::synthesize() {
          SAAN_OK;
     if (ok) {
       total_ = static_cast<size_t>(stream.n_frames) * SAAN_HOP;
-      ok = total_ <= 2 * 1024 * 1024;
+      ok = total_ <= (cacheMode_ ? 52428U : 2U * 1024U * 1024U);
       if (ok) pcm_ = static_cast<int16_t*>(heap_caps_calloc(
           total_, sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
       ok = ok && pcm_ != nullptr;

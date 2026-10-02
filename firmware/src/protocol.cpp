@@ -26,6 +26,9 @@ bool decodeText(const uint8_t* data, size_t length, Command& command) {
   else if (!strcmp(type, "tts.start")) command.type = CommandType::TtsStart;
   else if (!strcmp(type, "tts.end")) command.type = CommandType::TtsEnd;
   else if (!strcmp(type, "tts.cancel")) command.type = CommandType::TtsCancel;
+  else if (!strcmp(type, "fillers.set")) command.type = CommandType::FillersSet;
+  else if (!strcmp(type, "fillers.play")) command.type = CommandType::FillersPlay;
+  else if (!strcmp(type, "fillers.cancel")) command.type = CommandType::FillersCancel;
   else if (!strcmp(type, "chime")) command.type = CommandType::Chime;
   else if (!strcmp(type, "ping")) command.type = CommandType::Ping;
   else if (!strcmp(type, "pong")) command.type = CommandType::Pong;
@@ -34,7 +37,8 @@ bool decodeText(const uint8_t* data, size_t length, Command& command) {
   if (command.type == CommandType::VoiceMode &&
       strcmp(doc["mode"] | "", "device") && strcmp(doc["mode"] | "", "bridge")) return false;
   const bool hasSeq = command.type == CommandType::SpeakKana ||
-                      command.type == CommandType::TtsStart || command.type == CommandType::TtsEnd;
+                      command.type == CommandType::TtsStart || command.type == CommandType::TtsEnd ||
+                      command.type == CommandType::FillersPlay;
   if (hasSeq && !doc["seq"].is<uint16_t>()) return false;
   auto validExpression = [](const char* value) {
     return value && (!strcmp(value, "neutral") || !strcmp(value, "happy") ||
@@ -60,6 +64,26 @@ bool decodeText(const uint8_t* data, size_t length, Command& command) {
       (!doc["session"].is<const char*>() || !doc["server_time"].is<uint64_t>())) return false;
   if (command.type == CommandType::Chime && strcmp(doc["kind"] | "", "notify")) return false;
 
+  if (command.type == CommandType::FillersSet) {
+    if (!doc["phrases"].is<JsonArray>() || doc["phrases"].size() > 5) return false;
+    for (JsonObject phrase : doc["phrases"].as<JsonArray>()) {
+      const char* kind = phrase["kind"] | "";
+      if (strcmp(kind, "ack") && strcmp(kind, "wait")) return false;
+      const bool kana = phrase["kana"].is<const char*>();
+      const bool pcm = phrase["samples"].is<unsigned>();
+      if (kana == pcm) return false;
+      FillerPhrase value;
+      value.wait = !strcmp(kind, "wait");
+      if (kana) {
+        value.kana = phrase["kana"].as<const char*>();
+        if (value.kana.isEmpty() || value.kana.length() > 512) return false;
+      } else {
+        value.samples = phrase["samples"].as<unsigned>();
+        if (!value.samples || value.samples > 52428) return false;
+      }
+      command.fillers.push_back(value);
+    }
+  }
   command.seq = doc["seq"] | 0;
   command.sampleRate = doc["sample_rate"] | 0;
   command.channels = doc["channels"] | 0;

@@ -41,6 +41,9 @@ void AudioPlayer::cancel(bool notify) {
   if (submitted_) {
     // stop() is asynchronous: retain PCM until the speaker drops the channel.
     retired_.push_back({samples_, ownsBuffer_, std::move(release_)});
+    // A moved-from std::function may retain its callable (including PCM owners).
+    release_ = nullptr;
+    available_ = nullptr;
     samples_ = nullptr;
     sampleCount_ = capacityBytes_ = 0;
     ownsBuffer_ = false;

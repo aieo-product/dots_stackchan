@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <vector>
 #include "protocol_frame.h"
 
 namespace dots::protocol {
@@ -16,8 +17,17 @@ enum class CommandType {
   TtsEnd,
   TtsCancel,
   Chime,
+  FillersSet,
+  FillersPlay,
+  FillersCancel,
   Ping,
   Pong,
+};
+
+struct FillerPhrase {
+  String kana;
+  bool wait = false;
+  size_t samples = 0;
 };
 
 struct Command {
@@ -31,6 +41,7 @@ struct Command {
   uint64_t timestamp = 0;
   String text;
   String expression;
+  std::vector<FillerPhrase> fillers;
 };
 
 bool decodeText(const uint8_t* data, size_t length, Command& command);

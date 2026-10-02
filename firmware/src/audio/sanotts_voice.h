@@ -17,7 +17,10 @@ class SanoTtsVoice {
   using FailureHandler = std::function<void(uint16_t)>;
 
   void begin(AudioPlayer& player, FailureHandler failureHandler);
-  bool start(uint16_t seq, const String& kana);
+  using CacheHandler = std::function<void(int16_t*, size_t, uint32_t)>;
+  // Transfers PSRAM ownership to the callback on the app loop; never plays audio.
+  bool cache(const String& kana, CacheHandler handler);
+  bool start(uint16_t seq, const String& kana, CacheHandler handler = nullptr);
   void cancel(bool notify = true);
   void update();
   bool available() const;
@@ -33,6 +36,8 @@ class SanoTtsVoice {
   AudioPlayer* player_ = nullptr;
   FailureHandler failureHandler_;
 #if DOTS_SANOTTS
+  CacheHandler cacheHandler_;
+  bool cacheMode_ = false;
   String kana_;
   uint16_t seq_ = 0;
   int16_t* pcm_ = nullptr;
