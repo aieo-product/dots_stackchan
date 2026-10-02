@@ -1,35 +1,24 @@
-import { loadConfig } from "./config.js";
-import { createLogger } from "./log.js";
-import { createBridgeServer } from "./server.js";
-import { createSttEngineFactory } from "./stt/factory.js";
+import { startApp } from "./app/app.js";
 
 async function main(): Promise<void> {
-  const config = loadConfig();
-  const logger = createLogger(config.logLevel);
-  const bridge = createBridgeServer({
-    host: config.host,
-    port: config.port,
-    psk: config.devicePsk,
-    logger,
-    stt: { createEngine: createSttEngineFactory(config, logger), logTranscripts: config.logTranscripts },
-  });
-
-  await bridge.listen();
-
+  const app = await startApp();
   let stopping = false;
-  const stop = async (signal: string): Promise<void> => {
+  const stop = async (): Promise<void> => {
     if (stopping) return;
     stopping = true;
-    logger.info("bridge_stopping", { signal });
-    await bridge.close();
+    await app.close().catch(() => {
+      process.stderr.write('{"level":"error","event":"shutdown_failed"}\n');
+      process.exitCode = 1;
+    });
   };
-
-  process.once("SIGINT", () => void stop("SIGINT"));
-  process.once("SIGTERM", () => void stop("SIGTERM"));
+  process.once("SIGINT", () => void stop());
+  process.once("SIGTERM", () => void stop());
 }
 
 main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : "Unknown startup error";
+  // Provider and filesystem errors can contain private URLs, paths or credentials.
+  const message = error instanceof Error && error.message.startsWith("Invalid application configuration:")
+    ? error.message : "Application startup failed; check listeners, private stores and speech engine setup.";
   process.stderr.write(`${JSON.stringify({ level: "error", event: "startup_failed", message })}\n`);
   process.exitCode = 1;
 });

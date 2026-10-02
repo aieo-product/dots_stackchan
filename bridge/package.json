@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/index.ts",
-    "build": "tsc -p tsconfig.json && cp src/stt/mlx-worker.py dist/stt/mlx-worker.py"
+    "build": "tsc -p tsconfig.json && node ../scripts/copy-bridge-assets.mjs dist"
   },
   "dependencies": {
     "@slack/socket-mode": "^3.1.0",
