@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <utility>
 #include <functional>
+#include <vector>
 using std::min;
 using std::max;
 template<class T> T constrain(T value, T low, T high) { return min(high, max(low, value)); }
@@ -30,10 +31,15 @@ inline TestSerial Serial;
 using TaskHandle_t = void*;
 constexpr int pdPASS = 1;
 inline std::function<void()> testTask;
-inline int xTaskCreatePinnedToCore(void (*entry)(void*), const char*, unsigned, void* value,
+inline std::vector<std::function<void()>> testMicTasks;
+inline std::string testFailTask;
+inline std::function<void()> testDelayHook;
+inline int xTaskCreatePinnedToCore(void (*entry)(void*), const char* name, unsigned, void* value,
                                   unsigned, TaskHandle_t*, unsigned) {
-  testTask = [=] { entry(value); };
+  if (testFailTask == name) return 0;
+  if (std::string(name).find("mic-") == 0) testMicTasks.push_back([=] { entry(value); });
+  else testTask = [=] { entry(value); };
   return pdPASS;
 }
-inline void vTaskDelay(unsigned ticks) { testMillis += ticks; }
+inline void vTaskDelay(unsigned ticks) { testMillis += ticks; if (testDelayHook) testDelayHook(); }
 inline void vTaskDelete(void*) {}
