@@ -81,3 +81,6 @@ MOE-Speech (litagin) — https://huggingface.co/spaces/litagin/moe-speech-licens
 
 教師実装: piper-plus (MIT) — https://github.com/ayutaz/piper-plus
 ```
+音声認識の設定・ローカルモデルの導入・合成 WAV の再生・遅延の計測は
+[docs/stt.md](docs/stt.md) を参照してください。`STT_ENGINE=local` は OpenAI の
+API キーなしで mlx-whisper または常駐 whisper-server を使えます。

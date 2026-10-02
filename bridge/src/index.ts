@@ -1,6 +1,7 @@
 import { loadConfig } from "./config.js";
 import { createLogger } from "./log.js";
 import { createBridgeServer } from "./server.js";
+import { createSttEngineFactory } from "./stt/factory.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -10,6 +11,7 @@ async function main(): Promise<void> {
     port: config.port,
     psk: config.devicePsk,
     logger,
+    stt: { createEngine: createSttEngineFactory(config, logger), logTranscripts: config.logTranscripts },
   });
 
   await bridge.listen();
