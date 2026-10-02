@@ -15,7 +15,9 @@
     "zod": "^4.6.5",
     "openai": "^6.49.0",
     "piper-plus": "0.7.0",
-    "@modelcontextprotocol/server": "^2.2.0"
+    "@modelcontextprotocol/server": "^2.2.0",
+    "ipaddr.js": "^2.5.0",
+    "standardwebhooks": "^1.1.1"
   },
   "devDependencies": {
     "@types/ws": "^8.18.0",

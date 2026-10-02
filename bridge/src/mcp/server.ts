@@ -8,6 +8,7 @@ import {
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 
 import { wrapMcpHandler, type OAuth } from "../oauth/index.js";
+import type { EventRegistrar } from "../events/handlers.js";
 
 import {
   createMcpToolRegistrar,
@@ -28,13 +29,16 @@ export interface McpHttpServer {
 
 export function createMcpServer(
   dependencies: McpToolDependencies,
-  options: { readonly oauth?: OAuth } = {},
+  settings: EventRegistrar | { readonly oauth?: OAuth; readonly events?: EventRegistrar } = {},
 ): McpHttpServer {
+  const options = 'register' in settings ? { events: settings } : settings;
+  const events = options.events;
   const tools = createMcpToolRegistrar(dependencies);
   const handler = createMcpHandler(
     () => {
       const server = new McpServer({ name: "dots-stackchan", version: "0.0.0" });
       tools.register(server);
+      events?.register(server);
       return server;
     },
     {
