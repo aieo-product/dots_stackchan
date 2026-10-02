@@ -29,6 +29,7 @@ describe("Slack speech text", () => {
     expect(slackTextToSpeech("| a | b |\n| --- | --- |\n| hidden | cells |"))
       .toBe("表があるよ。");
     expect(slackTextToSpeech("a\tb\nprivate\tcells" )).toBe("表があるよ。");
+    expect(slackTextToSpeech("a | b\n--- | ---\nprivate | cells")).toBe("表があるよ。");
   });
   it("cleans markup, quotes and entities, and ignores empty text", () => {
     expect(slackTextToSpeech("> *hello* _world_ ~old~ &amp; &lt;value&gt;"))

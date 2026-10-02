@@ -36,4 +36,10 @@ describe("Slack configuration", () => {
     expect(() => loadSlackConfig({ SLACK_ENABLED: "true" }))
       .toThrow("SLACK_APP_TOKEN, SLACK_USER_TOKEN, SLACK_DOT_USER_ID");
   });
+  it("rejects empty token suffixes", () => {
+    expect(() => loadSlackConfig({ ...environment, SLACK_APP_TOKEN: ["xapp", ""].join("-") }))
+      .toThrow("SLACK_APP_TOKEN");
+    expect(() => loadSlackConfig({ ...environment, SLACK_USER_TOKEN: ["xoxp", ""].join("-") }))
+      .toThrow("SLACK_USER_TOKEN");
+  });
 });

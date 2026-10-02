@@ -9,8 +9,10 @@ function replaceTables(text: string): string {
   let inTable = false;
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
+    const divider = (row: string): boolean => /^\s*\|?\s*:?-{3,}:?\s*\|/.test(row);
     const tableRow = (row: string): boolean =>
-      /^\s*\|.*\|\s*$/.test(row) || (row.match(/\|/g)?.length ?? 0) >= 2 || /\S\t+\S/.test(row);
+      /^\s*\|.*\|\s*$/.test(row) || (row.match(/\|/g)?.length ?? 0) >= 2 || /\S\t+\S/.test(row) ||
+      (row.includes("|") && (inTable || divider(lines[index + 1] ?? ""))) || divider(row);
     const isTable = tableRow(line) && (inTable || tableRow(lines[index + 1] ?? ""));
     if (isTable) {
       if (!inTable) result.push("表があるよ。");

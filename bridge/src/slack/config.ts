@@ -2,8 +2,8 @@ import { z } from "zod";
 
 const enabledSchema = z.enum(["true", "false"]).default("false");
 const environmentSchema = z.object({
-  SLACK_APP_TOKEN: z.string().regex(/^xapp-/),
-  SLACK_USER_TOKEN: z.string().regex(/^xoxp-/),
+  SLACK_APP_TOKEN: z.string().regex(/^xapp-[A-Za-z0-9-]+$/),
+  SLACK_USER_TOKEN: z.string().regex(/^xoxp-[A-Za-z0-9-]+$/),
   SLACK_DOT_USER_ID: z.string().regex(/^[UWB][A-Z0-9]+$/),
   SLACK_CHANNEL: z.string().regex(/^D[A-Z0-9]+$/).optional(),
   SLACK_READ_SENTENCES: z.coerce.number().int().min(1).max(20).default(2),
