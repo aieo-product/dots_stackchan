@@ -47,6 +47,10 @@ content even if it was removed later. The current patterns and allowlist govern
 all snapshots. Diagnostics show locations and categories, with matched values
 redacted. Run `bash scripts/test/pii.test.sh` for the isolated regression suite.
 
+CI Actions are pinned to release commit SHAs, with version tags in comments.
+Dependabot checks GitHub Actions and the root npm workspace weekly; review its
+update PRs so the pinned versions remain current.
+
 ## Secrets at runtime
 
 - The bridge reads secrets from environment variables only. On macOS we recommend storing them in the
