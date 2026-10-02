@@ -7,6 +7,8 @@ import {
 
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 
+import type { EventRegistrar } from "../events/handlers.js";
+
 import {
   createMcpToolRegistrar,
   type McpToolDependencies,
@@ -24,12 +26,13 @@ export interface McpHttpServer {
   close(): Promise<void>;
 }
 
-export function createMcpServer(dependencies: McpToolDependencies): McpHttpServer {
+export function createMcpServer(dependencies: McpToolDependencies, events?: EventRegistrar): McpHttpServer {
   const tools = createMcpToolRegistrar(dependencies);
   const handler = createMcpHandler(
     () => {
       const server = new McpServer({ name: "dots-stackchan", version: "0.0.0" });
       tools.register(server);
+      events?.register(server);
       return server;
     },
     {
