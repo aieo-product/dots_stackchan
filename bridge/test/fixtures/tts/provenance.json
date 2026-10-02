@@ -1,0 +1,8 @@
+{
+  "upstreamCommit": "3eb73a91acdb8d4bc0cc10c3bc4e670555ce20bc",
+  "scriptSha256": "560fb625d5ebb0fa831f4db71631e14f75d26ed9a662e9b81e0ca320c85e8682",
+  "moraTableSha256": "9bd232f9c4865163a78b987ce86f7268721c1e23e4304f1770e292bb92a69074",
+  "piperPlusG2p": "0.2.0",
+  "pyopenjtalkPlus": "0.4.1.post9",
+  "sentences": 45
+}

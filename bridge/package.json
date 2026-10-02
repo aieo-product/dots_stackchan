@@ -12,7 +12,9 @@
     "@slack/web-api": "^8.2.0",
     "undici": "^7.30.0",
     "ws": "^8.18.0",
-    "zod": "^4.0.0"
+    "zod": "^4.6.5",
+    "openai": "^6.49.0",
+    "piper-plus": "0.7.0"
   },
   "devDependencies": {
     "@types/ws": "^8.18.0",
