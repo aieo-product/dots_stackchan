@@ -24,6 +24,9 @@ export interface PcmAudio {
 
 export interface TtsEngine {
   synthesize(text: string, signal?: AbortSignal): Promise<PcmAudio>;
+  /** 16kHz mono s16le. Consumers must close/abort abandoned streams. */
+  stream?(text: string, signal?: AbortSignal): AsyncIterable<Uint8Array>;
+  health?(signal?: AbortSignal): Promise<'ready' | 'unavailable' | 'unsupported'>;
 }
 
 /** Metadata only: implementations must never log text, credentials or errors from providers. */

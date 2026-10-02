@@ -6,7 +6,7 @@ import { FakeDevice, FakeTtsEngine } from './fixtures/tts/fakes.js';
 import type { KanaConverter } from '../src/tts/types.js';
 const queues: SpeechQueue[] = [];
 afterEach(() => { for (const queue of queues.splice(0)) queue.dispose(); vi.useRealTimers(); });
-async function flush(): Promise<void> { for (let i = 0; i < 12; i++) await Promise.resolve(); }
+async function flush(): Promise<void> { for (let i = 0; i < 40; i++) await Promise.resolve(); }
 function setup(kana: KanaConverter = { convert: async text => text }, options = {}) {
  const device = new FakeDevice();
  const queue = new SpeechQueue(device, new TtsRouter({ TTS_ENGINE: 'sanotts' }, kana, () => new FakeTtsEngine()), options);

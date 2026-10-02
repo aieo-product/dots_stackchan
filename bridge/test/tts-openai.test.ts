@@ -35,7 +35,7 @@ test('OpenAI request uses PCM, voice, instructions and abort signal', async () =
  const signal = new AbortController().signal;
  const result = await engine.synthesize('Hello!', signal);
  expect(create).toHaveBeenCalledWith({ model: 'gpt-4o-mini-tts', input: 'Hello!', voice: 'coral',
-  instructions: options.TTS_INSTRUCTIONS, response_format: 'pcm' }, { signal });
+  instructions: options.TTS_INSTRUCTIONS, response_format: 'pcm' }, { signal: expect.any(AbortSignal) });
  expect(result.sampleRate).toBe(16000);
  expect(result.data).toHaveLength(32000);
 });

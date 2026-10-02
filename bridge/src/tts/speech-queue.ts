@@ -3,12 +3,12 @@ import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import type { DeviceLink, DeviceMessage, TtsLog } from './types.js';
 import { abortError, abortable } from './types.js';
-import type { Expression, Speaker, SpeechTicket } from './speaker.js';
+import type { Expression, Speaker, SpeechTicket, SayOptions } from './speaker.js';
 import { segment } from './segment.js';
 import { TtsRouter } from './router.js';
 
 interface Job {
-  text: string; expression?: Expression; queuedAt: number;
+  text: string; expression?: Expression; purpose?: SayOptions['purpose']; queuedAt: number;
   resolve(): void; reject(error: unknown): void;
 }
 export interface SpeechQueueOptions { maxChars?: number; doneTimeoutMs?: number; log?: TtsLog }
@@ -29,7 +29,7 @@ export class SpeechQueue extends EventEmitter implements Speaker {
     this.maxChars = Math.min(500, Math.max(1, Math.floor(options.maxChars ?? 500)));
   }
 
-  say(text: string, opts: { expression?: Expression; interrupt?: boolean } = {}): SpeechTicket {
+  say(text: string, opts: SayOptions = {}): SpeechTicket {
     const chars = Array.from(text);
     const clipped = chars.slice(0, this.maxChars).join('');
     const id = randomUUID();
@@ -41,7 +41,7 @@ export class SpeechQueue extends EventEmitter implements Speaker {
     if (this.closed) { reject(new Error('Speech queue is disposed')); return { id, estimatedSeconds: 0, done }; }
     if (opts.interrupt) this.cancelAll();
     if (chars.length > this.maxChars) this.log('tts.truncated', { level: 'warn', originalChars: chars.length, maxChars: this.maxChars });
-    this.jobs.push({ text: clipped, expression: opts.expression, queuedAt: performance.now(), resolve, reject });
+    this.jobs.push({ text: clipped, expression: opts.expression, purpose: opts.purpose, queuedAt: performance.now(), resolve, reject });
     void this.drain();
     return { id, estimatedSeconds: Array.from(clipped).length * 0.15, done };
   }
@@ -80,16 +80,32 @@ export class SpeechQueue extends EventEmitter implements Speaker {
         try {
           const sentences = segment(job.text);
           if (sentences.length) this.setSpeaking(true);
-          for (const sentence of sentences) {
-            const conversionAt = performance.now();
-            const payload = await this.router.prepare(sentence, this.device, controller.signal);
+          const prepare = (sentence: string) => {
+            const startedAt = performance.now();
+            const promise = this.router.prepare(sentence, this.device, controller.signal, job?.purpose);
+            // A prefetched failure belongs to the next sentence, not the active one.
+            void promise.catch(() => undefined);
+            return { startedAt, promise };
+          };
+          let pending = sentences.length ? prepare(sentences[0]) : undefined;
+          for (let index = 0; index < sentences.length; index++) {
+            if (!pending) throw new Error('Speech preparation missing');
+            const conversionAt = pending.startedAt;
+            const payload = await pending.promise;
             controller.signal.throwIfAborted();
+            pending = index + 1 < sentences.length ? prepare(sentences[index + 1]) : undefined;
             if (payload.route === 'sanotts' && !payload.kana) continue;
             // Never reuse an identifier in this connection. Wrap could accept a late done.
             if (this.sequence >= 65535) throw new Error('Speech sequence exhausted; create a new device session');
             const seq = ++this.sequence;
-            await this.sendAndWait(seq, controller.signal, () => {
-              this.router.send(payload, this.device, seq, controller.signal, job?.expression);
+            await this.sendAndWait(seq, controller.signal, async () => {
+              await this.router.send(payload, this.device, seq, controller.signal, job?.expression, () => {
+                this.log('tts.first_audio', { seq, route: payload.route,
+                  firstAudioMs: performance.now() - conversionAt,
+                  replyToFirstAudioMs: performance.now() - (job?.queuedAt ?? conversionAt),
+                  sentence: index + 1, targetMs: 800,
+                  targetMet: performance.now() - (index === 0 ? job?.queuedAt ?? conversionAt : conversionAt) <= 800 });
+              });
               this.log('tts.sent', { seq, route: payload.route,
                 queuedToSendMs: performance.now() - (job?.queuedAt ?? conversionAt),
                 conversionToSendMs: performance.now() - conversionAt });
@@ -104,6 +120,8 @@ export class SpeechQueue extends EventEmitter implements Speaker {
           this.log('tts.failed', { interrupted: controller.signal.aborted });
           job.reject(error);
         } finally {
+          // Close an unused prefetched body and its deadline even on successful exit.
+          controller.abort();
           this.device.off('offline', offline);
           this.active = undefined;
         }
@@ -116,7 +134,7 @@ export class SpeechQueue extends EventEmitter implements Speaker {
     }
   }
 
-  private async sendAndWait(seq: number, signal: AbortSignal, send: () => void): Promise<void> {
+  private async sendAndWait(seq: number, signal: AbortSignal, send: () => Promise<void>): Promise<void> {
     let listener!: (message?: DeviceMessage) => void;
     let timer!: ReturnType<typeof setTimeout>;
     const done = new Promise<void>((resolve, reject) => {
@@ -130,7 +148,7 @@ export class SpeechQueue extends EventEmitter implements Speaker {
     });
     // Register before send, including devices that acknowledge synchronously.
     const wait = abortable(done, signal);
-    try { send(); await wait; }
+    try { await Promise.all([abortable(send(), signal), wait]); }
     catch (error) { void wait.catch(() => undefined); throw error; }
     finally { clearTimeout(timer); this.device.off('message', listener); }
   }

@@ -12,7 +12,7 @@ test('sanoTTS default does not construct OpenAI; sends v1 kana and expression', 
  const router = new TtsRouter({ TTS_ENGINE: 'sanotts' }, { convert: async () => 'こ[んにちうぁ' }, openai);
  const signal = new AbortController().signal;
  const payload = await router.prepare('こんにちは。', device, signal);
- router.send(payload, device, 1, signal, 'happy');
+ await router.send(payload, device, 1, signal, 'happy');
  expect(openai).not.toHaveBeenCalled();
  expect(device.messages).toEqual([{ type: 'speak.kana', seq: 1, kana: 'こ[んにちうぁ', expression: 'happy' }]);
 });
@@ -24,9 +24,9 @@ test.each(['foreign', 'capability', 'explicit'] as const)('PCM fallback: %s', as
   { convert: async () => { throw new Error('unexpected kana'); } }, () => engine);
  const signal = new AbortController().signal;
  const payload = await router.prepare(reason === 'foreign' ? 'Hello.' : 'こんにちは。', device, signal);
- router.send(payload, device, 27, signal, 'happy');
+ await router.send(payload, device, 27, signal, 'happy');
  expect(device.messages).toEqual([{ type: 'face', expression: 'happy' },
-  { type: 'tts.start', seq: 27, sample_rate: 16000, channels: 1, bits: 16 }, { type: 'tts.end', seq: 27 }]);
+  { type: 'tts.start', seq: 27, sample_rate: 16000, channels: 1, bits: 16, voice_mode: 'bridge', engine: 'openai' }, { type: 'tts.end', seq: 27 }]);
  expect(device.binaries.map(frame => frame.data.length)).toEqual([4092, 4092, 1816]);
  expect(device.binaries.every(frame => frame.kind === 2 && frame.seq === 27 && frame.data.length + 3 <= 4096)).toBe(true);
  expect(device.binaries.reduce((bytes, frame) => bytes + frame.data.length, 0)).toBe(10000);
@@ -37,7 +37,7 @@ test('offline, abort and invalid PCM do not send frames', async () => {
  device.online = false;
  await expect(router.prepare('test', device, new AbortController().signal)).rejects.toThrow('offline');
  device.online = true;
- expect(() => router.send({ route: 'openai', audio: { data: new Uint8Array(1), sampleRate: 16000 } }, device, 1, new AbortController().signal)).toThrow('Invalid');
- expect(() => router.send({ route: 'sanotts', kana: 'あ' }, device, 1, AbortSignal.abort())).toThrow();
+ await expect(router.send({ route: 'openai', audio: { data: new Uint8Array(1), sampleRate: 16000 } }, device, 1, new AbortController().signal)).rejects.toThrow('Invalid');
+ await expect(router.send({ route: 'sanotts', kana: 'あ' }, device, 1, AbortSignal.abort())).rejects.toThrow();
  expect(device.messages).toEqual([]);
 });

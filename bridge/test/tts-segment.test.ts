@@ -15,7 +15,7 @@ test('boundaries, blank lines, emoji only, and final fragment', () => {
  expect(segment('')).toEqual([]);
 });
 test('config defaults and bounds', () => {
- expect(ttsEnvSchema.parse({})).toMatchObject({ TTS_ENGINE: 'sanotts', KANA_ENGINE: 'wasm', TTS_MAX_CHARS: 500 });
+ expect(ttsEnvSchema.parse({})).toMatchObject({ VOICE_MODE: 'device', TTS_ENGINE: 'openai', NOTIFY_TTS_ENGINE: 'openai', KANA_ENGINE: 'wasm', TTS_MAX_CHARS: 500 });
  expect(ttsEnvSchema.parse({ KANA_ENGINE: 'python', TTS_ENGINE: 'openai', TTS_MAX_CHARS: '100' }).TTS_MAX_CHARS).toBe(100);
  expect(() => ttsEnvSchema.parse({ TTS_ENGINE: 'voicevox' })).toThrow();
  expect(() => ttsEnvSchema.parse({ TTS_MAX_CHARS: '501' })).toThrow();
@@ -23,4 +23,8 @@ test('config defaults and bounds', () => {
 
 test('replace URL before splitting so query punctuation is not spoken', () => {
  expect(segment('資料は https://<your-host>/a?x=1!y=2 を見てください。次へ。')).toEqual(['資料は リンク を見てください。', '次へ。']);
+});
+
+test('English sentence boundaries preserve decimal numbers and split after periods', () => {
+ expect(segment('Version 1.5 is ready. Let us try it now.')).toEqual(['Version 1.5 is ready.', 'Let us try it now.']);
 });

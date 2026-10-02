@@ -2,7 +2,8 @@ import { replaceUrls } from './text.js';
 
 /** Flush the first sentence immediately; group later short sentences to 15 characters. */
 export function segment(text: string, minChars = 15): string[] {
-  const sentences = replaceUrls(text).match(/[^。！？!?\n]+[。！？!?\n]*|[。！？!?\n]+/gu) ?? [];
+  const normalized = replaceUrls(text).replace(/(?<=\.)\s+(?=\p{L})/gu, '\n');
+  const sentences = normalized.match(/[^。！？!?\n]+[。！？!?\n]*|[。！？!?\n]+/gu) ?? [];
   const output: string[] = [];
   let pending = '';
   for (const sentence of sentences) {
