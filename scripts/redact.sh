@@ -1,20 +1,20 @@
 #!/bin/bash
 set -u
 
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 patterns="$script_dir/pii-patterns.txt"
 allowlist="$script_dir/../.pii-allowlist"
 
 awk -v allowfile="$allowlist" '
   BEGIN {
     while ((getline row < allowfile) > 0) {
-      if (row !~ /^(#|[[:space:]]*$|path:)/) allow[++na] = row
+      if (row !~ /^(#|[[:space:]]*$|binary:)/) allow[++na] = row
     }
     close(allowfile)
   }
   FNR == NR {
     tab = index($0, "\t")
-    if (tab > 1) {
+    if (tab > 1 && substr($0, 1, tab - 1) ~ /^[a-z][a-z-]*$/) {
       kind[++np] = substr($0, 1, tab - 1)
       pattern[np] = substr($0, tab + 1)
     }
