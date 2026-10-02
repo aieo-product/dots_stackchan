@@ -1,0 +1,2 @@
+# Test-only HMAC of a dummy PSK in firmware host tests (not a secret)
+6c4098a284d3bddffaaa0a8a71530b67345c87bf:firmware/test/host.cpp:generic-api-key:68

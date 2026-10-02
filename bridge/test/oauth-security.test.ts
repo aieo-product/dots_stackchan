@@ -15,7 +15,7 @@ import { approve, authorizationUrl, authorize, codeRequest, consentForm, harness
 beforeAll(() => {
   const build = spawnSync(process.execPath, ["node_modules/typescript/bin/tsc", "-p", "tsconfig.build.json"], { encoding: "utf8" });
   expect(build.status).toBe(0);
-});
+}, 120_000);
 
 const fixtures: ReturnType<typeof harness>[] = [];
 afterEach(() => { vi.restoreAllMocks(); fixtures.splice(0).forEach((h) => h.cleanup()); });
