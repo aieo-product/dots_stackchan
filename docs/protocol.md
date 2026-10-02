@@ -50,7 +50,7 @@ Each binary WebSocket frame is at most 4096 bytes, including this three-byte hea
 
 | Offset | Size | Field |
 |---:|---:|---|
-| 0 | 1 byte | `kind` (`0x01` microphone PCM, `0x02` TTS PCM) |
+| 0 | 1 byte | `kind` (`0x01` microphone PCM, `0x02` TTS PCM, `0x03` filler cache PCM) |
 | 1 | 2 bytes | `seq`, unsigned 16-bit little-endian |
 | 3 | remainder | PCM bytes |
 
@@ -61,3 +61,23 @@ Microphone PCM (`0x01`) travels D→B and is 16 kHz, signed 16-bit, mono. TTS PC
 The bridge uses WebSocket control-frame ping/pong heartbeats and drops a connection that misses a heartbeat. Protocol-level `ping` receives a `pong` with the same `t` value. On disconnect the device becomes offline; a later authenticated connection with the same device ID replaces that state with online and receives a new session ID.
 
 `DeviceHub.getDevice(deviceId)` (also available as `getStatus`) returns `{presence, state?, caps?, fw?}`; `listDevices()` returns these snapshots with a `deviceId` for every known device, including offline devices. `hello` updates capabilities and firmware, and state updates preserve them. Disconnect clears state and firmware but retains the last capabilities for status display until a new `hello` replaces them.
+
+## Filler cache (#17)
+
+B→D `fillers.set {phrases:[{kind:"ack"|"wait", kana:string}]}` replaces the cache
+(maximum five entries). Kana is synthesized on device in the background, without playback.
+An empty list clears/disables fillers. No generated filler audio is shipped.
+For a device with `caps.sanotts=false`, entries instead carry `samples` (1–52,428);
+B→D binary kind **0x03** carries 16 kHz mono s16le cache PCM, with `seq` equal to
+the zero-based phrase index. Frames stay within 4096 bytes and are distinct from
+reply PCM (`0x02`). Each entry becomes complete at exactly `samples * 2` bytes;
+all entries must complete before use. PCM and kana are mutually exclusive.
+The bridge synthesizes this fallback once per connection using its active TTS engine.
+
+`fillers.play {seq}` requests a cached wait phrase for the matching microphone turn.
+`fillers.cancel {}` cancels current/pending fillers without cancelling reply speech.
+The firmware starts acknowledgements locally at capture completion and ignores wait
+commands after cancellation, for old turns, during recording, or after two attempts.
+Fillers produce normal speaking/idle states but **no `tts.done`**, so their internal
+playback cannot satisfy a reply ticket. Reply start/cancel and local PTT also cancel fillers.
+See [fillers.md](fillers.md) for settings, limits and hardware evidence.

@@ -53,6 +53,7 @@ fake は固定の合成テスト文を返し、実際の音声を認識しませ
 | `EVENTS_ENABLED`, `EVENTS_SECRET_KEY`, `EVENTS_SEND`, `EVENTS_STORE_DIR` | 有効、保存暗号化鍵必須。3種類の署名付きイベント | [Events](docs/events.md) |
 | `QUIET_HOURS`, `QUIET_ALLOW_HIGH`, `NOTIFY_DEDUP_WINDOW_S`, `LOG_NOTIFICATIONS` | 22:00–07:00、high例外なし、重複窓600秒、本文ログなし | [notifications](bridge/src/notify/README.md) |
 | `SLACK_ENABLED`, `SLACK_*`, `ROUTE` | 無効。経路は`mcp` / `slack` / `both` | [Slack](docs/slack.md) |
+| `FILLER_PHRASES` | 最大5文の相槌設定。空文字/`[]`で無効 | [fillers](docs/fillers.md) |
 | `LOG_LEVEL`, `LOG_TRANSCRIPTS` | `info`、文字起こし本文ログなし | [privacy](docs/privacy.md), [STT](docs/stt.md) |
 
 MCPはローカルの `http://localhost:8791/mcp` で使えます。公開する場合は
