@@ -7,6 +7,7 @@ import { WebSocketServer } from "ws";
 import { ReplayCache, verifyDeviceAuth } from "./auth.js";
 import { DeviceHub } from "./device-hub.js";
 import type { Logger } from "./log.js";
+import { attachStt, type SttHubOptions } from "./stt/hub.js";
 
 export interface BridgeServerOptions {
   host: string;
@@ -14,6 +15,7 @@ export interface BridgeServerOptions {
   psk: string;
   logger: Logger;
   heartbeatIntervalMs?: number;
+  stt?: SttHubOptions;
 }
 
 export interface ListeningAddress {
@@ -34,6 +36,7 @@ function rejectUpgrade(socket: Duplex, status: 401 | 404): void {
 
 export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
   const hub = new DeviceHub(options.logger);
+  const detachStt = options.stt === undefined ? undefined : attachStt(hub, options.stt, options.logger);
   const replayCache = new ReplayCache();
   const webSockets = new WebSocketServer({ noServer: true });
   const httpServer: HttpServer = createServer((request, response) => {
@@ -78,6 +81,7 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
         });
       }),
     close: async () => {
+      detachStt?.();
       hub.close();
       await new Promise<void>((resolve, reject) => {
         webSockets.close(() => {
