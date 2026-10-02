@@ -10,4 +10,3 @@ export function preprocessText(text: string): string {
     .replace(/[^\p{L}\p{N}\p{M}\s。、！？!?.,:;()「」『』ー～~－+\-/%]/gu, ' ')
     .replace(/\s+/gu, ' ').trim();
 }
-
