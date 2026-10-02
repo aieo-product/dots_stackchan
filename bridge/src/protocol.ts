@@ -98,6 +98,18 @@ export const voiceModeSchema = z.strictObject({
   mode: z.enum(["device", "bridge"]),
 });
 
+export const fillerPhraseSchema = z.strictObject({
+  kind: z.enum(["ack", "wait"]),
+  kana: z.string().min(1).max(128).optional(),
+  samples: z.number().int().min(1).max(52_428).optional(),
+}).refine(value => (value.kana === undefined) !== (value.samples === undefined));
+export const fillersSetSchema = z.strictObject({
+  type: z.literal("fillers.set"),
+  phrases: z.array(fillerPhraseSchema).max(5),
+});
+export const fillersPlaySchema = z.strictObject({ type: z.literal("fillers.play"), seq: sequence });
+export const fillersCancelSchema = z.strictObject({ type: z.literal("fillers.cancel") });
+
 export const pingSchema = z.strictObject({
   type: z.literal("ping"),
   t: z.number(),
@@ -130,6 +142,9 @@ export function isUnknownDeviceMessage(value: unknown): boolean {
 
 export const bridgeToDeviceMessageSchema = z.discriminatedUnion("type", [
   welcomeSchema,
+  fillersSetSchema,
+  fillersPlaySchema,
+  fillersCancelSchema,
   faceSchema,
   lookSchema,
   speakKanaSchema,
@@ -153,6 +168,7 @@ export const MAX_BINARY_FRAME_BYTES = 4_096;
 export const BinaryKind = {
   microphonePcm: 0x01,
   ttsPcm: 0x02,
+  fillerPcm: 0x03,
 } as const;
 export type BinaryKind = (typeof BinaryKind)[keyof typeof BinaryKind];
 
@@ -163,7 +179,7 @@ export interface BinaryFrame {
 }
 
 export function encodeBinaryFrame(kind: BinaryKind, seq: number, data: Uint8Array): Uint8Array {
-  if (kind !== BinaryKind.microphonePcm && kind !== BinaryKind.ttsPcm) {
+  if (kind !== BinaryKind.microphonePcm && kind !== BinaryKind.ttsPcm && kind !== BinaryKind.fillerPcm) {
     throw new Error("Unknown binary frame kind");
   }
   if (!Number.isInteger(seq) || seq < 0 || seq > 65_535) {
@@ -185,7 +201,7 @@ export function decodeBinaryFrame(frame: Uint8Array): BinaryFrame {
     throw new Error(`Binary frame size must be ${BINARY_HEADER_BYTES}..${MAX_BINARY_FRAME_BYTES} bytes`);
   }
   const kind = frame[0];
-  if (kind !== BinaryKind.microphonePcm && kind !== BinaryKind.ttsPcm) {
+  if (kind !== BinaryKind.microphonePcm && kind !== BinaryKind.ttsPcm && kind !== BinaryKind.fillerPcm) {
     throw new Error("Unknown binary frame kind");
   }
   const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);

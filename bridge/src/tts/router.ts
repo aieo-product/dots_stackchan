@@ -35,6 +35,12 @@ export class TtsRouter {
     catch { signal?.throwIfAborted(); return 'unavailable'; }
   }
 
+  /** Connection-only fallback for devices without sanoTTS. Never persist audio. */
+  async fillerPcm(text: string, signal: AbortSignal): Promise<PcmAudio> {
+    const route = this.options.TTS_ENGINE;
+    return abortable(this.engine(route === 'sanotts' ? 'openai' : route).synthesize(text, signal), signal);
+  }
+
   async prepare(text: string, device: DeviceLink, signal: AbortSignal, purpose = 'reply'): Promise<SpeechPayload> {
     signal.throwIfAborted();
     if (!device.online) throw new Error('Speech device is offline');

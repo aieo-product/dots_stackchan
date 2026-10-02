@@ -76,10 +76,10 @@ export class DeviceHub extends EventEmitter {
     return true;
   }
 
-  public sendBinary(deviceId: string, seq: number, data: Uint8Array): boolean {
+  public sendBinary(deviceId: string, seq: number, data: Uint8Array, kind: 0x02 | 0x03 = BinaryKind.ttsPcm): boolean {
     const connection = this.connections.get(deviceId);
     if (connection === undefined || connection.socket.readyState !== WebSocket.OPEN) return false;
-    connection.socket.send(encodeBinaryFrame(BinaryKind.ttsPcm, seq, data), { binary: true });
+    connection.socket.send(encodeBinaryFrame(kind, seq, data), { binary: true });
     return true;
   }
 

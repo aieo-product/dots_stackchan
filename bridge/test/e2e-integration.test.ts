@@ -34,7 +34,7 @@ async function setup(env: NodeJS.ProcessEnv = {}, options: Partial<AppOptions> =
   const lines: string[] = [];
   const kana = { convert: vi.fn(async () => "こ[んにちうぁ"), dispose: vi.fn() };
   const config = loadAppConfig({ DEVICE_PSK: psk, BRIDGE_HOST: "localhost", STT_ENGINE: "fake", VOICE_MODE: "device",
-    QUIET_HOURS: "", EVENTS_ENABLED: "false", EVENTS_STORE_DIR: directory, ...env });
+    QUIET_HOURS: "", FILLER_PHRASES: "", EVENTS_ENABLED: "false", EVENTS_STORE_DIR: directory, ...env });
   const app = await startApp({ config, logger: createLogger("debug", line => lines.push(line)), kana,
     ports: { device: 0, localMcp: 0, publicMcp: 0 }, ...options });
   cleanups.push(() => app.close());
@@ -324,4 +324,39 @@ it("shutdown aborts an in-flight MCP say before waiting for HTTP teardown", asyn
   await app.close();
   expect((await waiting).isError).toBe(true);
   expect(await app.utterances.nextUtterance(120000)).toBeNull();
+});
+
+it("connect sends kana fillers even in bridge voice mode; MCP reply cancels before speech", async () => {
+  const engine = await startFakeLocalTts(); cleanups.push(() => engine.close());
+  const { client, connect, kana } = await setup({ VOICE_MODE: "bridge", TTS_ENGINE: "local-http",
+    LOCAL_TTS_URL: `${engine.url}/tts`, FILLER_PHRASES: '[{"kind":"ack","text":"うん"},{"kind":"wait","text":"まだ調べてるよ"}]' });
+  const device = await connect();
+  await vi.waitFor(() => expect(device.messages.find(message => message.type === "fillers.set" &&
+    Array.isArray(message.phrases) && message.phrases.length === 2)).toBeDefined());
+  expect(kana.convert).toHaveBeenCalledTimes(2);
+  expect(device.binary).toHaveLength(0);
+  device.send({ type: "mic.start", seq: 1, sample_rate: 16000 });
+  device.socket.send(encodeBinaryFrame(BinaryKind.microphonePcm, 1, new Uint8Array(640)));
+  device.send({ type: "mic.end", seq: 1, reason: "release" });
+  await client.callTool({ name: "say", arguments: { text: "こんにちは。" } });
+  await vi.waitFor(() => expect(device.messages.some(message => message.type === "tts.start")).toBe(true));
+  const types = device.messages.map(message => message.type);
+  expect(types.lastIndexOf("fillers.cancel")).toBeLessThan(types.indexOf("tts.start"));
+  expect(types).not.toContain("fillers.play");
+});
+
+it("connect caches fallback PCM via authenticated WebSocket only when sanoTTS is absent", async () => {
+  const engine = await startFakeLocalTts(); cleanups.push(() => engine.close());
+  const { connect, kana } = await setup({ TTS_ENGINE: "local-http", LOCAL_TTS_URL: `${engine.url}/tts`,
+    FILLER_PHRASES: '[{"kind":"ack","text":"うん"}]' });
+  const device = await connect("integration-device", false);
+  await vi.waitFor(() => expect(device.binary.length).toBeGreaterThan(0));
+  const setting = device.messages.find(message => message.type === "fillers.set" &&
+    Array.isArray(message.phrases) && message.phrases.length === 1);
+  expect(setting).toBeDefined();
+  const metadata = setting?.phrases as Array<{ samples: number }>;
+  const frames = device.binary.map(decodeBinaryFrame);
+  expect(frames.every(frame => frame.kind === BinaryKind.fillerPcm && frame.seq === 0)).toBe(true);
+  expect(frames.reduce((bytes, frame) => bytes + frame.data.length, 0)).toBe(metadata[0].samples * 2);
+  expect(kana.convert).not.toHaveBeenCalled();
 });
