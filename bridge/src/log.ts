@@ -21,6 +21,7 @@ const sensitiveKey = /(?:auth|device.?id|host|hostname|ip|psk|secret|token)/i;
 const ipv4Pattern = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
 
 export function redactLogValue(key: string, value: unknown): unknown {
+  if (key === "host" && value === "0.0.0.0") return value;
   if (sensitiveKey.test(key)) return "<redacted>";
   if (typeof value === "string") return value.replace(ipv4Pattern, "<redacted:ip>");
   if (Array.isArray(value)) return value.map((item) => redactLogValue("item", item));

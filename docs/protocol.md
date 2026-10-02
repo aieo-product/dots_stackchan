@@ -16,9 +16,11 @@ The bridge returns HTTP 401 when the timestamp differs from bridge time by more 
 
 Production deployments should expose this endpoint as WSS through a TLS terminator. The bridge itself also supports plain WS for a trusted local network and tests.
 
+`BRIDGE_HOST` defaults to `0.0.0.0` (all IPv4 interfaces), allowing devices to connect over the LAN. Set it explicitly to restrict the listening interface. Startup logs include the bind host and port; the wildcard address is visible, specific hosts are redacted, and the PSK is never logged.
+
 ## JSON text frames
 
-Every text frame is one JSON object. Fields shown below are top-level fields alongside `type`; additional fields are rejected.
+Every text frame is one JSON object. Fields shown below are top-level fields alongside `type`. For D→B messages, unknown fields (including capability fields) are stripped, and unknown string `type` values are ignored with a debug log. Known message types still require valid payloads. B→D validation rejects additional fields, including for `ping` and `pong`.
 
 | Direction | `type` | Payload fields |
 |---|---|---|
@@ -55,3 +57,5 @@ Microphone PCM (`0x01`) travels D→B and is 16 kHz, signed 16-bit, mono. TTS PC
 ## Liveness and reconnects
 
 The bridge uses WebSocket control-frame ping/pong heartbeats and drops a connection that misses a heartbeat. Protocol-level `ping` receives a `pong` with the same `t` value. On disconnect the device becomes offline; a later authenticated connection with the same device ID replaces that state with online and receives a new session ID.
+
+`DeviceHub.getDevice(deviceId)` (also available as `getStatus`) returns `{presence, state?, caps?, fw?}`; `listDevices()` returns these snapshots with a `deviceId` for every known device, including offline devices. `hello` updates capabilities and firmware, and state updates preserve them. Disconnect clears state and firmware but retains the last capabilities for status display until a new `hello` replaces them.

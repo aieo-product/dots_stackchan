@@ -8,7 +8,9 @@ import {
   decodeBinaryFrame,
   deviceToBridgeMessageSchema,
   encodeBinaryFrame,
+  isUnknownDeviceMessage,
   type BridgeToDeviceMessage,
+  type DeviceCapabilities,
   type DeviceState,
   type DeviceToBridgeMessage,
 } from "./protocol.js";
@@ -27,6 +29,8 @@ export interface HubEvent<T> {
 export interface DeviceStatus {
   presence: "online" | "offline";
   state?: DeviceState;
+  caps?: DeviceCapabilities;
+  fw?: string;
 }
 
 function rawDataToBytes(raw: RawData): Uint8Array {
@@ -50,7 +54,8 @@ export class DeviceHub extends EventEmitter {
 
     const connection: DeviceConnection = { socket, session, alive: true };
     this.connections.set(deviceId, connection);
-    this.statuses.set(deviceId, { presence: "online" });
+    const caps = this.statuses.get(deviceId)?.caps;
+    this.statuses.set(deviceId, { presence: "online", ...(caps === undefined ? {} : { caps }) });
     this.emit("online", { deviceId, payload: { session } } satisfies HubEvent<{ session: string }>);
     this.logger.info("device_online", { device_id: deviceId });
 
@@ -79,7 +84,16 @@ export class DeviceHub extends EventEmitter {
   }
 
   public getStatus(deviceId: string): DeviceStatus {
-    return this.statuses.get(deviceId) ?? { presence: "offline" };
+    return this.getDevice(deviceId);
+  }
+
+  public getDevice(deviceId: string): DeviceStatus {
+    const status = this.statuses.get(deviceId) ?? { presence: "offline" };
+    return { ...status, ...(status.caps === undefined ? {} : { caps: { ...status.caps } }) };
+  }
+
+  public listDevices(): Array<DeviceStatus & { deviceId: string }> {
+    return [...this.statuses.keys()].map((deviceId) => ({ deviceId, ...this.getDevice(deviceId) }));
   }
 
   public connectedDeviceCount(): number {
@@ -107,7 +121,8 @@ export class DeviceHub extends EventEmitter {
     const current = this.connections.get(deviceId);
     if (current?.socket !== socket) return;
     this.connections.delete(deviceId);
-    this.statuses.set(deviceId, { ...this.statuses.get(deviceId), presence: "offline" });
+    const caps = this.statuses.get(deviceId)?.caps;
+    this.statuses.set(deviceId, { presence: "offline", ...(caps === undefined ? {} : { caps }) });
     this.emit("offline", { deviceId, payload: {} } satisfies HubEvent<Record<string, never>>);
     this.logger.info("device_offline", { device_id: deviceId });
   }
@@ -149,6 +164,10 @@ export class DeviceHub extends EventEmitter {
     }
     const result = deviceToBridgeMessageSchema.safeParse(candidate);
     if (!result.success) {
+      if (isUnknownDeviceMessage(candidate)) {
+        this.logger.debug("unknown_device_message", { device_id: deviceId });
+        return;
+      }
       this.logger.warn("invalid_device_message", { device_id: deviceId });
       return;
     }
@@ -158,6 +177,9 @@ export class DeviceHub extends EventEmitter {
   private handleMessage(deviceId: string, message: DeviceToBridgeMessage): void {
     switch (message.type) {
       case "hello": {
+        this.statuses.set(deviceId, {
+          ...this.statuses.get(deviceId), presence: "online", caps: message.caps, fw: message.fw,
+        });
         const session = this.connections.get(deviceId)?.session;
         if (session !== undefined) {
           this.send(deviceId, { type: "welcome", session, server_time: Math.floor(Date.now() / 1_000) });
@@ -171,7 +193,7 @@ export class DeviceHub extends EventEmitter {
       case "pong":
         break;
       case "state":
-        this.statuses.set(deviceId, { presence: "online", state: message.state });
+        this.statuses.set(deviceId, { ...this.statuses.get(deviceId), presence: "online", state: message.state });
         this.emit("state", { deviceId, payload: message } satisfies HubEvent<typeof message>);
         break;
       case "event":

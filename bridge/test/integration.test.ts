@@ -3,6 +3,7 @@ import WebSocket from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createDeviceAuth } from "../src/auth.js";
+import { loadConfig } from "../src/config.js";
 import { createLogger } from "../src/log.js";
 import { createBridgeServer, type BridgeServer } from "../src/server.js";
 
@@ -42,6 +43,20 @@ async function expectHttpRejection(port: number, key: string, timestamp: string)
 }
 
 describe("real bridge server", () => {
+  it("binds all IPv4 interfaces by default and logs the address without PSK", async () => {
+    const config = loadConfig({ DEVICE_PSK: psk });
+    const lines: string[] = [];
+    bridge = createBridgeServer({
+      host: config.host, port: 0, psk: config.devicePsk, logger: createLogger("info", (line) => lines.push(line)),
+    });
+    const address = await bridge.listen();
+    expect(address).toEqual({ host: "0.0.0.0", port: expect.any(Number) });
+    expect(JSON.parse(lines[0] ?? "")).toEqual({
+      level: "info", event: "bridge_started", host: "0.0.0.0", port: address.port,
+    });
+    expect(lines.join("\n")).not.toContain(psk);
+  });
+
   it("binds an ephemeral port, welcomes a device, sends face, and survives reconnect", async () => {
     bridge = createBridgeServer({ host: "localhost", port: 0, psk, logger: createLogger("error", () => undefined) });
     const { port } = await bridge.listen();

@@ -1,6 +1,6 @@
 import { EventEmitter, once } from "node:events";
 import WebSocket from "ws";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DeviceHub } from "../src/device-hub.js";
 import type { Logger } from "../src/log.js";
@@ -30,6 +30,8 @@ function asWebSocket(socket: FakeSocket): WebSocket {
 }
 
 describe("DeviceHub", () => {
+  beforeEach(() => vi.clearAllMocks());
+
   it("sends a typed command to an online device", () => {
     const hub = new DeviceHub(logger);
     const socket = new FakeSocket();
@@ -64,6 +66,105 @@ describe("DeviceHub", () => {
 
     socket.emit("message", Buffer.from(JSON.stringify({ type: "event", kind: "button", where: "center" })), false);
     await expect(eventReceived).resolves.toEqual([{ deviceId: "device", payload: { type: "event", kind: "button", where: "center" } }]);
+  });
+
+  it("tracks hello metadata through state changes, disconnect, and a new hello", () => {
+    const hub = new DeviceHub(logger);
+    const first = new FakeSocket();
+    const caps = { sanotts: true, servo: false, mic: true };
+    hub.connect("device", asWebSocket(first), "first");
+    expect(hub.getDevice("device")).toEqual({ presence: "online" });
+    first.emit("message", Buffer.from(JSON.stringify({ type: "hello", fw: "v1", caps })), false);
+    first.emit("message", Buffer.from(JSON.stringify({ type: "state", state: "listening" })), false);
+    expect(hub.getDevice("device")).toEqual({ presence: "online", state: "listening", caps, fw: "v1" });
+    expect(hub.getStatus("device")).toEqual(hub.getDevice("device"));
+
+    first.close();
+    expect(hub.getDevice("device")).toEqual({ presence: "offline", caps });
+    const second = new FakeSocket();
+    hub.connect("device", asWebSocket(second), "second");
+    expect(hub.getDevice("device")).toEqual({ presence: "online", caps });
+    const updatedCaps = { sanotts: false, servo: true, mic: false };
+    second.emit("message", Buffer.from(JSON.stringify({ type: "hello", fw: "v2", caps: updatedCaps })), false);
+    expect(hub.getDevice("device")).toEqual({ presence: "online", caps: updatedCaps, fw: "v2" });
+  });
+
+  it("lists known online and offline devices and returns independent snapshots", () => {
+    const hub = new DeviceHub(logger);
+    expect(hub.listDevices()).toEqual([]);
+    expect(hub.getDevice("unknown")).toEqual({ presence: "offline" });
+    expect(hub.listDevices()).toEqual([]);
+    const socket = new FakeSocket();
+    const caps = { sanotts: true, servo: false, mic: true };
+    hub.connect("first", asWebSocket(socket), "session");
+    socket.emit("message", Buffer.from(JSON.stringify({ type: "hello", fw: "v1", caps })), false);
+    socket.close();
+    hub.connect("second", asWebSocket(new FakeSocket()), "session");
+    expect(hub.listDevices()).toEqual([
+      { deviceId: "first", presence: "offline", caps },
+      { deviceId: "second", presence: "online" },
+    ]);
+    const snapshot = hub.getDevice("first");
+    if (snapshot.caps !== undefined) snapshot.caps.mic = false;
+    const listed = hub.listDevices()[0];
+    if (listed?.caps !== undefined) listed.caps.servo = true;
+    expect(hub.getDevice("first").caps).toEqual(caps);
+  });
+
+  it("clears a disconnected device with no hello", () => {
+    const hub = new DeviceHub(logger);
+    const socket = new FakeSocket();
+    hub.connect("device", asWebSocket(socket), "session");
+    socket.emit("message", Buffer.from(JSON.stringify({ type: "state", state: "thinking" })), false);
+    socket.close();
+    expect(hub.getDevice("device")).toEqual({ presence: "offline" });
+  });
+
+  it("ignores frames and a delayed close from a replaced connection", () => {
+    const hub = new DeviceHub(logger);
+    const first = new FakeSocket();
+    first.close.mockImplementation(() => { first.readyState = WebSocket.CLOSING; });
+    hub.connect("device", asWebSocket(first), "first");
+    const second = new FakeSocket();
+    hub.connect("device", asWebSocket(second), "second");
+    const caps = { sanotts: true, servo: true, mic: true };
+    second.emit("message", Buffer.from(JSON.stringify({ type: "hello", fw: "current", caps })), false);
+    first.emit("message", Buffer.from(JSON.stringify({ type: "hello", fw: "stale", caps })), false);
+    first.emit("close");
+    expect(hub.getDevice("device")).toEqual({ presence: "online", caps, fw: "current" });
+  });
+
+  it("accepts additional fields and strips them from emitted messages", () => {
+    const hub = new DeviceHub(logger);
+    const socket = new FakeSocket();
+    hub.connect("device", asWebSocket(socket), "session");
+    const onState = vi.fn();
+    hub.on("state", onState);
+    socket.emit("message", Buffer.from(JSON.stringify({ type: "state", state: "idle", extra: true })), false);
+    expect(onState).toHaveBeenCalledWith({ deviceId: "device", payload: { type: "state", state: "idle" } });
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it("ignores unknown types at debug level and continues processing known messages", () => {
+    const hub = new DeviceHub(logger);
+    const socket = new FakeSocket();
+    hub.connect("device", asWebSocket(socket), "session");
+    socket.emit("message", Buffer.from(JSON.stringify({ type: "future.message", extra: true })), false);
+    expect(logger.debug).toHaveBeenCalledWith("unknown_device_message", { device_id: "device" });
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(socket.send).not.toHaveBeenCalled();
+    socket.emit("message", Buffer.from(JSON.stringify({ type: "ping", t: 123, extra: true })), false);
+    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: "pong", t: 123 }));
+  });
+
+  it("still warns for malformed known messages and invalid envelopes", () => {
+    const hub = new DeviceHub(logger);
+    const socket = new FakeSocket();
+    hub.connect("device", asWebSocket(socket), "session");
+    socket.emit("message", Buffer.from(JSON.stringify({ type: "state", state: "invalid" })), false);
+    socket.emit("message", Buffer.from(JSON.stringify({ type: 42 })), false);
+    expect(logger.warn).toHaveBeenCalledTimes(2);
+    expect(logger.debug).not.toHaveBeenCalled();
   });
 
   it("emits decoded microphone PCM and sends framed TTS PCM", async () => {

@@ -2,10 +2,10 @@ import { z } from "zod";
 
 const sequence = z.number().int().min(0).max(65_535);
 
-export const helloSchema = z.strictObject({
+export const helloSchema = z.object({
   type: z.literal("hello"),
   fw: z.string().min(1),
-  caps: z.strictObject({
+  caps: z.object({
     sanotts: z.boolean(),
     servo: z.boolean(),
     mic: z.boolean(),
@@ -18,24 +18,24 @@ export const welcomeSchema = z.strictObject({
   server_time: z.number().int().nonnegative(),
 });
 
-export const stateSchema = z.strictObject({
+export const stateSchema = z.object({
   type: z.literal("state"),
   state: z.enum(["idle", "listening", "thinking", "speaking", "notifying"]),
 });
 
-export const eventSchema = z.strictObject({
+export const eventSchema = z.object({
   type: z.literal("event"),
   kind: z.enum(["touch", "button"]),
   where: z.string().min(1).optional(),
 });
 
-export const micStartSchema = z.strictObject({
+export const micStartSchema = z.object({
   type: z.literal("mic.start"),
   seq: sequence,
   sample_rate: z.literal(16_000),
 });
 
-export const micEndSchema = z.strictObject({
+export const micEndSchema = z.object({
   type: z.literal("mic.end"),
   seq: sequence,
   reason: z.enum(["release", "timeout", "vad"]),
@@ -76,7 +76,7 @@ export const ttsCancelSchema = z.strictObject({
   type: z.literal("tts.cancel"),
 });
 
-export const ttsDoneSchema = z.strictObject({
+export const ttsDoneSchema = z.object({
   type: z.literal("tts.done"),
   seq: sequence,
   ok: z.boolean(),
@@ -104,9 +104,18 @@ export const deviceToBridgeMessageSchema = z.discriminatedUnion("type", [
   micStartSchema,
   micEndSchema,
   ttsDoneSchema,
-  pingSchema,
-  pongSchema,
+  pingSchema.strip(),
+  pongSchema.strip(),
 ]);
+
+const deviceMessageEnvelopeSchema = z.object({ type: z.string() });
+
+export function isUnknownDeviceMessage(value: unknown): boolean {
+  const envelope = deviceMessageEnvelopeSchema.safeParse(value);
+  return envelope.success && !deviceToBridgeMessageSchema.options.some(
+    (schema) => schema.shape.type.value === envelope.data.type,
+  );
+}
 
 export const bridgeToDeviceMessageSchema = z.discriminatedUnion("type", [
   welcomeSchema,
@@ -124,6 +133,7 @@ export const bridgeToDeviceMessageSchema = z.discriminatedUnion("type", [
 export type DeviceToBridgeMessage = z.infer<typeof deviceToBridgeMessageSchema>;
 export type BridgeToDeviceMessage = z.infer<typeof bridgeToDeviceMessageSchema>;
 export type DeviceState = z.infer<typeof stateSchema>["state"];
+export type DeviceCapabilities = z.infer<typeof helloSchema>["caps"];
 
 export const BINARY_HEADER_BYTES = 3;
 export const MAX_BINARY_FRAME_BYTES = 4_096;

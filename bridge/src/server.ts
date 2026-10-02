@@ -73,6 +73,7 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
           httpServer.off("error", onError);
           const address = httpServer.address() as AddressInfo;
           hub.startHeartbeat(options.heartbeatIntervalMs ?? 20_000);
+          options.logger.info("bridge_started", { host: options.host, port: address.port });
           resolve({ host: options.host, port: address.port });
         });
       }),

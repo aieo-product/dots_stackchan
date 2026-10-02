@@ -6,7 +6,7 @@ const portSchema = z.preprocess(
 );
 
 const hostSchema = z.preprocess(
-  (value) => (value === undefined || value === "" ? "localhost" : value),
+  (value) => (value === undefined || value === "" ? "0.0.0.0" : value),
   z.string().min(1),
 );
 

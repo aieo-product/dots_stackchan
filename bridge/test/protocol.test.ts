@@ -6,6 +6,7 @@ import {
   decodeBinaryFrame,
   deviceToBridgeMessageSchema,
   encodeBinaryFrame,
+  isUnknownDeviceMessage,
 } from "../src/protocol.js";
 
 describe("protocol schemas", () => {
@@ -19,7 +20,7 @@ describe("protocol schemas", () => {
     { type: "ping", t: 123 },
     { type: "pong", t: 123 },
   ])("accepts device message $type", (message) => {
-    expect(deviceToBridgeMessageSchema.safeParse(message).success).toBe(true);
+    expect(deviceToBridgeMessageSchema.parse({ ...message, future_field: true })).toEqual(message);
   });
 
   it.each([
@@ -35,10 +36,25 @@ describe("protocol schemas", () => {
     { type: "pong", t: 123 },
   ])("accepts bridge message $type", (message) => {
     expect(bridgeToDeviceMessageSchema.safeParse(message).success).toBe(true);
+    expect(bridgeToDeviceMessageSchema.safeParse({ ...message, future_field: true }).success).toBe(false);
   });
 
-  it("rejects unexpected fields", () => {
-    expect(deviceToBridgeMessageSchema.safeParse({ type: "state", state: "idle", secret: true }).success).toBe(false);
+  it("strips extra hello capability fields", () => {
+    const caps = { sanotts: true, servo: false, mic: true };
+    expect(deviceToBridgeMessageSchema.parse({ type: "hello", fw: "test", caps: { ...caps, display: true } }))
+      .toEqual({ type: "hello", fw: "test", caps });
+  });
+
+  it.each([null, [], {}, { type: 42 }, { type: "state", state: "invalid" }, { type: "ping", t: "invalid" }])(
+    "rejects malformed known messages and envelopes: %j", (message) => {
+      expect(deviceToBridgeMessageSchema.safeParse(message).success).toBe(false);
+      expect(isUnknownDeviceMessage(message)).toBe(false);
+    },
+  );
+
+  it("identifies unknown types without weakening known message validation", () => {
+    expect(isUnknownDeviceMessage({ type: "future.message", extra: true })).toBe(true);
+    expect(isUnknownDeviceMessage({ type: "state", state: "idle" })).toBe(false);
   });
 });
 

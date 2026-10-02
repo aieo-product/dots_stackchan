@@ -3,6 +3,16 @@ import { describe, expect, it } from "vitest";
 import { createLogger } from "../src/log.js";
 
 describe("structured logger", () => {
+  it("shows only the wildcard bind address and always redacts PSK", () => {
+    const lines: string[] = [];
+    const logger = createLogger("info", (line) => lines.push(line));
+    logger.info("bridge_started", { host: "0.0.0.0", port: 8790, psk: "test-only-key" });
+    expect(JSON.parse(lines[0] ?? "")).toEqual({
+      level: "info", event: "bridge_started", host: "0.0.0.0", port: 8790, psk: "<redacted>",
+    });
+    expect(lines.join("\n")).not.toContain("test-only-key");
+  });
+
   it("redacts sensitive fields and IP-shaped strings", () => {
     const lines: string[] = [];
     const logger = createLogger("debug", (line) => lines.push(line));

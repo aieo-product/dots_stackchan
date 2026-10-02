@@ -12,8 +12,7 @@ async function main(): Promise<void> {
     logger,
   });
 
-  const address = await bridge.listen();
-  logger.info("bridge_started", { port: address.port });
+  await bridge.listen();
 
   let stopping = false;
   const stop = async (signal: string): Promise<void> => {
