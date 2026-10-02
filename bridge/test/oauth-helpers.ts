@@ -24,7 +24,7 @@ export function harness() {
   const passcode = randomBytes(32).toString("base64url");
   const events: AccessEvent[] = [];
   let time = 1_800_000_000_000;
-  const config = { publicUrl: RESOURCE, passcode, storeDir: directory };
+  const config = { publicUrl: RESOURCE, passcode, storeDir: directory, allowedRedirectOrigins: ["https://example.org"] };
   const options = { now: () => time, log: (event: AccessEvent) => { events.push(event); } };
   const oauth = createOAuth(config, options);
   const handler = oauth.wrap(async () => new Response("protected"));

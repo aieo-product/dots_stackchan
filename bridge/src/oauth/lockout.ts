@@ -5,7 +5,7 @@ const BLOCK_MS = 15 * 60 * 1000;
 export function blockedFor(data: StoreData, clientHash: string, now: number): number {
   return Math.max(0, ...["global", clientHash].map((key) => {
     const counter = data.lockouts[key];
-    if (counter && counter.until <= now) Reflect.deleteProperty(data.lockouts, key);
+    if (counter && counter.until !== 0 && counter.until <= now) Reflect.deleteProperty(data.lockouts, key);
     return (data.lockouts[key]?.until ?? 0) - now;
   }));
 }

@@ -1,5 +1,5 @@
 import { beginAuthorization, finishAuthorization } from "./authorize.js";
-import { readOAuthConfig, validateOAuthConfig, type OAuthConfig } from "./config.js";
+import { DEFAULT_REDIRECT_ORIGINS, readOAuthConfig, validateOAuthConfig, type OAuthConfig } from "./config.js";
 import { passcodeChecker } from "./crypto.js";
 import { metadata, unauthorized } from "./metadata.js";
 import { json, OAuthError } from "./protocol.js";
@@ -28,7 +28,8 @@ export function createOAuth(config: OAuthConfig = readOAuthConfig(), options: OA
   const resource = validated.publicUrl;
   const issuer = new URL(resource).origin;
   const store = new OAuthStore(validated.storeDir, resource);
-  store.transaction(() => {});
+  store.read();
+  const origins = validated.allowedRedirectOrigins ?? DEFAULT_REDIRECT_ORIGINS;
   const checkPasscode = passcodeChecker(validated.passcode);
   const now = options.now ?? Date.now;
   const log = options.log ?? ((event: AccessEvent) => console.info(JSON.stringify(event)));
@@ -55,9 +56,9 @@ export function createOAuth(config: OAuthConfig = readOAuthConfig(), options: OA
             const authorization = request.headers.get("authorization");
             response = verifyAccess(store, authorization, resource, now())
               ? await mcpHandler(request) : unauthorized(issuer, authorization !== null);
-          } else if (route === "register" && request.method === "POST") response = await register(request, store, now());
-          else if (route === "authorize" && request.method === "GET") response = beginAuthorization(request, store, resource, now());
-          else if (route === "authorize" && request.method === "POST") response = await finishAuthorization(request, store, issuer, now(), checkPasscode);
+          } else if (route === "register" && request.method === "POST") response = await register(request, store, now(), origins);
+          else if (route === "authorize" && request.method === "GET") response = await beginAuthorization(request, store, resource, now(), origins);
+          else if (route === "authorize" && request.method === "POST") response = await finishAuthorization(request, store, issuer, now(), checkPasscode, origins);
           else if (route === "token" && request.method === "POST") response = await exchange(request, store, resource, now());
           else if (["register", "authorize", "token"].includes(route)) {
             response = json({ error: "method_not_allowed" }, 405, { allow: route === "authorize" ? "GET, POST" : "POST" });

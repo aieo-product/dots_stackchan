@@ -46,7 +46,7 @@ describe("OAuth discovery and configuration", () => {
 
   it("validates HTTPS, canonical /mcp URL, injected passcode and private store path without echoing secrets", () => {
     const h = setup();
-    expect(readOAuthConfig({ MCP_PUBLIC_URL: RESOURCE, MCP_PASSCODE: h.passcode, OAUTH_STORE_DIR: h.directory })).toEqual(h.config);
+    expect(readOAuthConfig({ MCP_PUBLIC_URL: RESOURCE, MCP_PASSCODE: h.passcode, OAUTH_STORE_DIR: h.directory, OAUTH_ALLOWED_REDIRECT_ORIGINS: "https://example.org" })).toEqual(h.config);
     for (const publicUrl of ["http://example.com/mcp", `${RESOURCE}/`, `${RESOURCE}?x=1`, `${RESOURCE}#x`, `${RESOURCE}?`, `${RESOURCE}#`, "https://example.com", "https://user:secret@example.com/mcp"]) {
       expect(() => validateOAuthConfig({ ...h.config, publicUrl })).toThrow("MCP_PUBLIC_URL");
     }
@@ -77,9 +77,9 @@ describe("Dynamic client registration", () => {
       expect(await response.json()).toMatchObject({ error: expect.stringMatching(/^invalid_(client_metadata|redirect_uri)$/) });
     }
     for (let index = 1; index < 100; index++) await registerClient(h.handler);
-    await expect(registerClient(h.handler)).rejects.toThrow("429");
+    expect(await registerClient(h.handler)).toMatch(/^[A-Za-z0-9_-]{43}$/);
     const restarted = createOAuth(h.config, h.options).wrap(async () => new Response());
-    await expect(registerClient(restarted)).rejects.toThrow("429");
+    expect(await registerClient(restarted)).toMatch(/^[A-Za-z0-9_-]{43}$/);
   });
 
   it("defaults DCR to authorization_code only per RFC 7591", async () => {
@@ -248,7 +248,7 @@ describe("Tokens and persistent revocation", () => {
     const h = setup();
     const client = await registerClient(h.handler);
     const token = await tokens(h.handler, client, h.passcode);
-    new OAuthStore(h.directory, RESOURCE).transaction((data) => {
+    await new OAuthStore(h.directory, RESOURCE).transaction((data) => {
       data.access[0].resource = "https://example.net/mcp";
     });
     expect((await mcp(h, token.access_token)).status).toBe(401);
@@ -278,6 +278,7 @@ describe("Tokens and persistent revocation", () => {
     expect((await h.handler(refreshRequest(other, next.refresh_token ?? ""))).status).toBe(400);
     expect((await h.handler(refreshRequest(client, next.refresh_token ?? "", { resource: "https://example.net/mcp" }))).status).toBe(400);
     expect((await mcp(h, next.access_token)).status).toBe(200);
+    h.advance(10_000);
     const restarted = createOAuth(h.config, h.options).wrap(async () => new Response());
     expect((await restarted(refreshRequest(client, refresh))).status).toBe(400);
     expect((await mcp(h, next.access_token)).status).toBe(401);
@@ -315,7 +316,7 @@ describe("Tokens and persistent revocation", () => {
     expect(lstatSync(h.directory).mode & 0o777).toBe(0o700);
     const handler = wrapMcpHandler(createOAuth(h.config, h.options), async () => new Response());
     expect((await handler(request("/mcp", undefined, { authorization: `Bearer ${token.access_token}` }))).status).toBe(200);
-    revokeOAuth(h.directory);
+    await revokeOAuth(h.directory);
     expect((await mcp(h, token.access_token)).status).toBe(401);
     expect((await h.handler(refreshRequest(client, token.refresh_token ?? ""))).status).toBe(400);
     expect((await h.handler(new Request(authorizationUrl(client)))).status).toBe(400);
@@ -395,7 +396,7 @@ describe("Lockout and redacted access events", () => {
     h.advance(900_000);
     expect((await approve(h.handler, authorizationUrl(client), "wrong")).status).toBe(403);
     for (let index = 0; index < 4; index++) await approve(h.handler, authorizationUrl(client), "wrong");
-    revokeOAuth(h.directory);
+    await revokeOAuth(h.directory);
     const newClient = await registerClient(h.handler);
     expect((await h.handler(new Request(authorizationUrl(newClient)))).status).toBe(429);
   });

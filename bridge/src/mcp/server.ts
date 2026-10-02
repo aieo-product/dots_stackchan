@@ -51,7 +51,7 @@ export function createMcpServer(
         throw new Error("The MCP server is already listening.");
       }
 
-      const server = createHttpServer((request, response) => {
+      const server = createHttpServer({ requestTimeout: 30_000, headersTimeout: 30_000, keepAliveTimeout: 5_000 }, (request, response) => {
         void handleRequest(request, response, fetchHandler, host, port, options.oauth !== undefined);
       });
       httpServer = server;

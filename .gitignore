@@ -22,3 +22,7 @@ firmware/.vscode/
 
 # OS
 .DS_Store
+
+# browser test output (may contain test authorization data)
+playwright-report/
+test-results/
