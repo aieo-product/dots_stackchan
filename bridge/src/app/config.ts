@@ -6,6 +6,7 @@ import { readOAuthConfig } from "../oauth/config.js";
 import { readEventsConfig } from "../events/config.js";
 import { loadSlackConfig } from "../slack/config.js";
 import { loadUtteranceRoute } from "../slack/router.js";
+import { readFillerConfig } from "../fillers/config.js";
 import { ttsEnvSchema } from "../tts/config.js";
 
 /** Validate every service before opening sockets; errors contain setting names only. */
@@ -24,6 +25,7 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env) {
   }
   const bridge = read("DEVICE_PSK / BRIDGE_* / STT_*", () => loadConfig(env));
   const tts = read("TTS_* / VOICE_MODE", () => ttsEnvSchema.parse(env));
+  const fillers = read("FILLER_PHRASES", () => readFillerConfig(env));
   const mcp = read("MCP_PORT / MCP_HOST", () => mcpConfigSchema.parse({ MCP_PORT: "8791", ...env }));
   const localPort = read("MCP_LOCAL_PORT", () => z.coerce.number().int().min(1).max(65535).parse(env.MCP_LOCAL_PORT ?? "8792"));
   const notify = read("QUIET_HOURS / NOTIFY_*", () => notificationConfigSchema.parse(env));
@@ -39,10 +41,10 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env) {
   if (bridge?.openaiApiKey?.startsWith("keychain://")) errors.push("OPENAI_API_KEY must be injected");
   if (env.LOCAL_TTS_TOKEN?.startsWith("keychain://")) errors.push("LOCAL_TTS_TOKEN must be injected");
   if (route !== "mcp" && !slack?.enabled) errors.push("SLACK_ENABLED is required for ROUTE");
-  if (errors.length || !bridge || !tts || !mcp || !notify || !events || !slack || !route || !localPort) {
+  if (errors.length || !bridge || !tts || !fillers || !mcp || !notify || !events || !slack || !route || !localPort) {
     throw new Error(`Invalid application configuration: ${errors.join("; ")}`);
   }
-  return { bridge, tts, mcp, localPort, notify, events, slack, route, oauth, localTtsToken: env.LOCAL_TTS_TOKEN };
+  return { bridge, tts, fillers, mcp, localPort, notify, events, slack, route, oauth, localTtsToken: env.LOCAL_TTS_TOKEN };
 }
 
 export type AppConfig = ReturnType<typeof loadAppConfig>;

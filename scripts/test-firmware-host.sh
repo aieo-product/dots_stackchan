@@ -13,7 +13,7 @@ c++ -std=c++17 -fsanitize=address,undefined -g \
   -DARDUINOJSON_ENABLE_ARDUINO_STRING=1 -DARDUINOJSON_ENABLE_ARDUINO_STREAM=0 \
   -Ifirmware/test/stubs -Ifirmware/src \
   -Ifirmware/.pio/libdeps/m5stack-cores3/ArduinoJson/src \
-  firmware/test/host.cpp firmware/src/protocol.cpp firmware/src/audio/player.cpp \
+  firmware/test/host.cpp firmware/src/protocol.cpp firmware/src/audio/player.cpp firmware/src/audio/fillers.cpp \
   firmware/src/audio/sanotts_voice.cpp firmware/src/audio/speech_dispatcher.cpp \
   firmware/src/audio/mic.cpp firmware/src/input.cpp \
   firmware/src/net/ws_link.cpp "${crypto_flags[@]}" -o "$temporary/host"
@@ -24,7 +24,7 @@ c++ -std=c++17 -fsanitize=address,undefined -g -DDOTS_SANOTTS=1 \
   -Ifirmware/test/stubs -Ifirmware/src -Ifirmware/lib/sanotts/src \
   -Ifirmware/.pio/libdeps/m5stack-cores3/ArduinoJson/src \
   firmware/test/host.cpp firmware/test/voice_mock.cpp firmware/src/protocol.cpp \
-  firmware/src/audio/player.cpp firmware/src/audio/sanotts_voice.cpp \
+  firmware/src/audio/player.cpp firmware/src/audio/fillers.cpp firmware/src/audio/sanotts_voice.cpp \
   firmware/src/audio/speech_dispatcher.cpp \
   firmware/src/audio/mic.cpp firmware/src/input.cpp \
   firmware/src/net/ws_link.cpp "$temporary/g2p.o" "${crypto_flags[@]}" -o "$temporary/voice"
@@ -33,7 +33,7 @@ c++ -std=c++17 -fsanitize=address,undefined -g -DDOTS_MIC_VAD=1 \
   -DARDUINOJSON_ENABLE_ARDUINO_STRING=1 -DARDUINOJSON_ENABLE_ARDUINO_STREAM=0 \
   -Ifirmware/test/stubs -Ifirmware/src \
   -Ifirmware/.pio/libdeps/m5stack-cores3/ArduinoJson/src \
-  firmware/test/host.cpp firmware/src/protocol.cpp firmware/src/audio/player.cpp \
+  firmware/test/host.cpp firmware/src/protocol.cpp firmware/src/audio/player.cpp firmware/src/audio/fillers.cpp \
   firmware/src/audio/sanotts_voice.cpp firmware/src/audio/speech_dispatcher.cpp \
   firmware/src/audio/mic.cpp firmware/src/input.cpp firmware/src/net/ws_link.cpp \
   "${crypto_flags[@]}" -o "$temporary/vad"

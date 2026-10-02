@@ -93,7 +93,9 @@ void WsLink::start() {
 }
 
 void WsLink::update(bool wifiConnected) {
-  SocketGuard guard(lock_);
+  // Mic TX may be stalled in a socket write. Keep local input/audio responsive.
+  SocketGuard guard(lock_, true);
+  if (!guard.locked()) return;
   if (!wifiConnected) {
     if (started_) socket_.disconnect();
     started_ = false;
@@ -112,8 +114,9 @@ void WsLink::update(bool wifiConnected) {
   }
 }
 
-bool WsLink::send(const String& text, const std::atomic<bool>* cancelled) {
-  SocketGuard guard(lock_);
+bool WsLink::send(const String& text, const std::atomic<bool>* cancelled, bool nonblocking) {
+  SocketGuard guard(lock_, nonblocking);
+  if (!guard.locked()) return false;
   String mutableText(text);
   return connected_ && (!cancelled || !cancelled->load()) && socket_.sendTXT(mutableText);
 }

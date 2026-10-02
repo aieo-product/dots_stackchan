@@ -32,6 +32,7 @@ bool Microphone::start() {
     M5.Mic.end(); M5.Speaker.begin(); return false;
   }
   active_ = true;
+  restored_ = false;
   startedAt_ = millis();
   face_->setState("listening");
   M5.Mic.setBufferReleaseCallback(this, captured);
@@ -124,9 +125,16 @@ void Microphone::sendTask(void* argument) {
 }
 
 void Microphone::update() {
-  if (!active_ || !captureDone_ || !txDone_) return;
-  M5.Speaker.begin();
-  active_ = false;
-  face_->setState(aborted_ ? "idle" : "thinking");
+  if (!active_ || !captureDone_) return;
+  if (!restored_) {
+    restored_ = true;
+    M5.Speaker.begin();
+    face_->setState(aborted_ ? "idle" : "thinking");
+    if (!aborted_ && endHandler_) {
+      Serial.printf("[fillers] mic_end t=%lu\n", millis());
+      endHandler_(seq_);
+    }
+  }
+  if (txDone_) active_ = false;
 }
 }

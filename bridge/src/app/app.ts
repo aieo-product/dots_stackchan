@@ -1,3 +1,4 @@
+import { Fillers } from "../fillers/controller.js";
 import { loadAppConfig, type AppConfig } from "./config.js";
 import { AppDevice } from "./device.js";
 import { AppUtterances } from "./utterances.js";
@@ -50,7 +51,7 @@ export async function startApp(options: AppOptions = {}) {
   })();
   try {
     const createEngine = options.createSttEngine ?? createSttEngineFactory(config.bridge, logger);
-    const kana = options.kana ?? (config.tts.VOICE_MODE === "device" ? await createKanaConverter(config.tts)
+    const kana = options.kana ?? ((config.tts.VOICE_MODE === "device" || config.fillers.length > 0) ? await createKanaConverter(config.tts)
       : { convert: async () => { throw new Error("Kana conversion is unavailable in bridge mode"); }, dispose() {} });
     cleanups.push(() => kana.dispose());
     const bridge = createBridgeServer({ host: config.bridge.host, port: options.ports?.device ?? config.bridge.port,
@@ -60,6 +61,9 @@ export async function startApp(options: AppOptions = {}) {
     const device = new AppDevice(bridge.hub);
     cleanups.push(() => device.dispose());
     const router = createTtsRouter(config.tts, kana, { openaiApiKey: config.bridge.openaiApiKey, localTtsToken: config.localTtsToken });
+    const fillers = new Fillers(device, config.fillers, kana, router, () => logger.warn("fillers_setup_failed"));
+    cleanups.push(() => fillers.dispose());
+    stopWork.push(() => fillers.dispose());
     let queue: SpeechQueue | undefined;
     let speechActive = false;
     const stopSpeech = () => { const current = queue; queue = undefined; current?.dispose(); speechActive = false; };
@@ -67,9 +71,10 @@ export async function startApp(options: AppOptions = {}) {
     const speaker: Speaker = {
       say(text, opts) {
         if (!queue) throw new Error("Device is offline");
+        fillers.cancel();
         return queue.say(text, opts);
       },
-      cancelAll() { queue?.cancelAll(); },
+      cancelAll() { fillers.cancel(); queue?.cancelAll(); },
     };
     device.on("connected", () => {
       queue?.dispose();
@@ -86,6 +91,7 @@ export async function startApp(options: AppOptions = {}) {
         device.emit("message", { type: "state", state: active ? "speaking" : device.state ?? "idle" });
       });
       router.announceMode(device);
+      void fillers.connect();
     });
     device.on("offline", stopSpeech);
     const bargeIn = ({ deviceId }: { deviceId: string }) => { if (device.isSelected(deviceId)) speaker.cancelAll(); };
@@ -124,7 +130,7 @@ export async function startApp(options: AppOptions = {}) {
         },
       };
       mirror = new SlackMirror({ client: options.slackClient ?? new SocketSlackClient(config.slack, logger),
-        utterances: slackSource, notifications: { submit: notice => { notifications.submit({ ...notice, receivedAt: Date.now() }); } },
+        utterances: slackSource, notifications: { submit: notice => { fillers.cancel(); notifications.submit({ ...notice, receivedAt: Date.now() }); } },
         readSentences: config.slack.readSentences, logger });
       cleanups.push(() => mirror?.dispose());
     }

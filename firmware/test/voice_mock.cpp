@@ -9,6 +9,7 @@ alignas(16) const uint8_t saan_model_blob[16] = {};
 const uint32_t saan_model_blob_size = 16;
 }
 std::function<void()> testPullHook;
+bool testVoiceSuccess = false;
 static unsigned pulls = 0;
 extern "C" saan_status saan_weights_open(saan_weights*, const void*, size_t) { return SAAN_OK; }
 extern "C" void saan_arena_init(saan_arena*, void*, size_t) {}
@@ -22,6 +23,11 @@ extern "C" saan_status saan_stream_pull(saan_stream*, float* output, int32_t* fr
   if (++pulls == 1) {
     std::memset(output, 0, sizeof(float) * 8 * SAAN_HOP);
     *frames = 8;
+    return SAAN_OK;
+  }
+  if (testVoiceSuccess) {
+    *frames = pulls == 2 ? 8 : 0;
+    if (*frames) std::memset(output, 0, sizeof(float) * 8 * SAAN_HOP);
     return SAAN_OK;
   }
   if (testPullHook) testPullHook();

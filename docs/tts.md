@@ -150,3 +150,5 @@ HTTP body を逐次読み、最初の出力ができた時点で `tts.start {seq
 sanoTTS-jp のコードは [MIT](https://github.com/ayutaz/sanoTTS-jp/blob/main/LICENSE)。かな変換の凍結テーブルの出典と許諾文は `bridge/src/tts/LICENSE-sanotts` に保存した。**端末のモデル重みと生成音声には別の [モデルライセンス](https://github.com/ayutaz/sanoTTS-jp/blob/main/LICENSE-MODEL.md) がある**。重みを含む firmware の配布時は上流のモデルライセンス・NOTICE の条件を確認する。本変更はモデル重みを同梱しない。WASM 内の OpenJTalk / jpreprocess / NAIST-JDIC の帰属は npm パッケージ同梱の第三者ライセンスに従う。
 
 45 文で温めた WASM の変換時間は開発環境で p95 約 **0.82ms**（Node 24、単回測定）。これは送信・端末合成・音声出力を含まない。sanoTTS の送信 50ms / 音声開始 0.6 秒と、実 OpenAI での最初の PCM フレーム 0.8 秒は、統合したブリッジと実機で測る必要がある。#4/#5 の配線・sanoTTS 合成、#6 のマイク連動、K151 の音量・発音・口パク、割り込み再生停止、部屋や人の写らない動画とログの E2E 証拠は統合後に確認する。
+
+話し終わりの相槌キャッシュ・接続時の合成・設定・実機計測は [fillers.md](fillers.md) を参照する。

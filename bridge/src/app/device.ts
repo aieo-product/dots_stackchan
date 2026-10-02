@@ -54,8 +54,8 @@ export class AppDevice extends EventEmitter implements DeviceLink {
     if (!this.selected || !this.hub.send(this.selected, parsed)) throw new Error("Device is offline");
   }
   sendBinary(kind: number, seq: number, data: Uint8Array): void {
-    if (kind !== 0x02) throw new Error("Only TTS PCM can be sent to a device");
-    if (!this.selected || !this.hub.sendBinary(this.selected, seq, data)) throw new Error("Device is offline");
+    if (kind !== 0x02 && kind !== 0x03) throw new Error("Only speech or filler PCM can be sent to a device");
+    if (!this.selected || !this.hub.sendBinary(this.selected, seq, data, kind)) throw new Error("Device is offline");
   }
   dispose(): void {
     for (const [name, listener] of this.bindings) this.hub.off(name, listener);

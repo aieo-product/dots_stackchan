@@ -80,6 +80,6 @@ describe("binary frames", () => {
   });
 
   it("rejects unknown kinds", () => {
-    expect(() => decodeBinaryFrame(Uint8Array.from([0x03, 0, 0]))).toThrow("Unknown");
+    expect(() => decodeBinaryFrame(Uint8Array.from([0x04, 0, 0]))).toThrow("Unknown");
   });
 });

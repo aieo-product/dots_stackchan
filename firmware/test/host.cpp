@@ -4,6 +4,7 @@
 #include <M5Unified.h>
 #include <esp_heap_caps.h>
 #include "audio/player.h"
+#include "audio/fillers.h"
 #include "audio/speech_dispatcher.h"
 #include "audio/mic.h"
 #include "input.h"
@@ -11,6 +12,7 @@
 #if DOTS_SANOTTS
 #include "audio/sanotts_voice.h"
 extern std::function<void()> testPullHook;
+extern bool testVoiceSuccess;
 #endif
 
 static time_t clockSeconds = 0;
@@ -133,6 +135,8 @@ int main() {
     assert(!M5.Speaker.running && M5.Mic.running && faceState == "listening");
     assert(testMicTasks.size() == 2 && !mic.start());
   };
+  unsigned localEnds = 0;
+  mic.onEnd([&](uint16_t) { assert(!M5.Mic.running && M5.Speaker.running); ++localEnds; });
   startMic();
   unsigned capturedFrames = 0;
   testDelayHook = [&] {
@@ -143,7 +147,7 @@ int main() {
   const auto binaryBeforeMic = socket.binary.size();
   testMicTasks[1](); // capture owner, while TX is deliberately held back
   assert(!M5.Mic.running && !M5.Speaker.running);
-  mic.update(); assert(mic.busy()); // must flush PCM before mic.end / restoring speaker
+  mic.update(); assert(mic.busy() && !mic.capturing() && M5.Speaker.running && localEnds == 1); // playback may start before TX finishes
   testMicTasks[0](); // independent TX task drains all frames, then sends exactly one end
   mic.update();
   assert(!mic.busy() && M5.Speaker.running && faceState == "thinking");
@@ -452,6 +456,53 @@ int main() {
   assert(voiceMode == "device" && done.size() == 3 && done.back().second);
   dispatcher.cancel();
   testPullHook = nullptr; testTask(); dispatcherVoice.update();
+#endif
+  // Real filler cache + player: partial transfer stays silent, cancellation retains speaker memory.
+  M5.Speaker.slots = 0; player.update();
+  FillerCache fillers;
+  SanoTtsVoice cacheVoice;
+  player.begin(avatar, [&](uint16_t seq, bool ok) {
+    if (!fillers.finished()) done.emplace_back(seq, ok);
+  });
+  cacheVoice.begin(player, [&](uint16_t seq) { done.emplace_back(seq, false); });
+  fillers.begin(player, cacheVoice);
+  auto cache = decode(R"({"type":"fillers.set","phrases":[{"kind":"ack","samples":2},{"kind":"wait","samples":2}]})");
+  fillers.set(cache.fillers);
+  assert(!fillers.ready());
+  fillers.ended(8); assert(!player.busy());
+  uint8_t fillerBytes[] = {3, 0, 0, 0, 1, 0, 2};
+  assert(protocol::decodeBinary(fillerBytes, sizeof(fillerBytes), frame));
+  fillers.append(frame); assert(!fillers.ready());
+  frame.seq = 1; fillers.append(frame); assert(fillers.ready());
+  const auto fillerDoneBefore = done.size();
+  fillers.ended(8); player.update(); assert(player.playing() && M5.Speaker.slots == 1);
+  M5.Speaker.slots = 0; player.update(); assert(done.size() == fillerDoneBefore);
+  fillers.wait(7); assert(!player.busy()); // stale turn
+  fillers.wait(8); player.update(); assert(player.busy());
+  M5.Speaker.slots = 0; player.update();
+  fillers.wait(8); player.update(); assert(player.busy());
+  M5.Speaker.slots = 0; player.update();
+  fillers.wait(8); assert(!player.busy()); // at most two
+  fillers.ended(9); player.update();
+  const auto cacheFrees = testFrees;
+  fillers.set({}); assert(!fillers.ready() && testFrees == cacheFrees + 1);
+  player.update(); assert(testFrees == cacheFrees + 1); // ack still borrowed by async speaker
+  M5.Speaker.slots = 0; player.update(); assert(testFrees == cacheFrees + 2);
+  fillers.wait(9); assert(!player.busy());
+#if DOTS_SANOTTS
+  testVoiceSuccess = true;
+  auto localCache = decode(R"({"type":"fillers.set","phrases":[{"kind":"ack","kana":"うん"},{"kind":"wait","kana":"まだしらべてるよ"}]})");
+  fillers.set(localCache.fillers); fillers.update(false); assert(!cacheVoice.busy());
+  fillers.update(true); assert(cacheVoice.busy() && !player.busy());
+  testTask(); cacheVoice.update(); assert(!player.busy() && !fillers.ready());
+  fillers.update(true); testTask(); cacheVoice.update(); assert(fillers.ready() && !player.busy());
+  fillers.ended(10); player.update(); assert(player.busy()); fillers.cancel();
+  M5.Speaker.slots = 0; player.update(); fillers.wait(10); assert(!player.busy());
+  fillers.set(localCache.fillers); fillers.update(true); fillers.interruptSynthesis();
+  testTask(); cacheVoice.update(); fillers.update(true); // interrupted boot synthesis resumes safely
+  testTask(); cacheVoice.update(); fillers.update(true); testTask(); cacheVoice.update();
+  assert(fillers.ready()); fillers.set({});
+  testVoiceSuccess = false;
 #endif
   std::cout << "host: protocol/auth, mic release/750-frame cap/overflow/abort/failure, PCM streaming and silent speech interruption passed\n";
 }

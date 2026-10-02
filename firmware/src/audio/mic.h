@@ -18,6 +18,8 @@ class Microphone {
   void release();
   void abort();
   void update();
+  void onEnd(std::function<void(uint16_t)> handler) { endHandler_ = std::move(handler); }
+  bool capturing() const { return active_ && !captureDone_; }
   bool available() const { return queue_ && M5.Mic.isEnabled(); }
   bool busy() const { return active_; }
  private:
@@ -26,6 +28,8 @@ class Microphone {
   FaceController* face_ = nullptr;
   QueueHandle_t queue_ = nullptr;
   bool active_ = false;
+  bool restored_ = false;
+  std::function<void(uint16_t)> endHandler_;
   uint16_t seq_ = 0;
   uint32_t startedAt_ = 0;
   int16_t buffers_[2][audio::kMicSamples] = {};
