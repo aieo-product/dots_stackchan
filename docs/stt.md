@@ -205,8 +205,8 @@ The reviewer measured this 1.83-second fixture before the readiness follow-up:
 
 | Engine | Before: end → final text | After: end → final text |
 |---|---:|---:|
-| `openai-realtime` | 1,798 ms | Pending reviewer rerun with a real key |
-| `openai-batch` | 851 ms | Pending reviewer rerun with a real key |
+| `openai-realtime` | 1,798 ms | 717 / 701 / 660 ms (warm session, 20 ms paced) |
+| `openai-batch` | 851 ms | 1,235 / 1,322 / 905 ms |
 | `local/whisper-cpp` (tiny, CPU) | Not previously measured | 346 / 338 / 338 ms (median 338 ms) |
 
 Neither baseline met 600 ms. A slow streaming result alone does not identify a
