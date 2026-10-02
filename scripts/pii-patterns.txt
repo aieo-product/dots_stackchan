@@ -5,6 +5,7 @@ email	[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+([.][A-Za-z0-9-]+)+
 webhook-token	whsec_[A-Za-z0-9_-]+
 openai-token	sk-[A-Za-z0-9_-]+
 slack-token	xox[a-z]-[A-Za-z0-9_-]+
+slack-app-token	xapp-[A-Za-z0-9_-]+
 github-token	(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})
 aws-key	(AKIA|ASIA)[A-Z0-9]{16}
 jwt	eyJ[A-Za-z0-9_-]{8,}[.]eyJ[A-Za-z0-9_-]{8,}[.][A-Za-z0-9_-]+
