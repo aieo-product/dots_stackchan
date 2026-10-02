@@ -50,6 +50,13 @@ cd firmware && pio run
 CoreS3 / K151 のセットアップは [docs/firmware.md](docs/firmware.md) を参照してください。
 sanoTTS の重みは含まれません。重みなしのビルドはブリッジからの PCM 音声を再生できます。
 
+## Voice modes
+
+日本語かつ端末が sanoTTS 対応なら、既定で端末合成（`VOICE_MODE=device`）を使います。
+`VOICE_MODE=bridge` は全言語を OpenAI TTS で合成し、PCMを端末へストリーミングします。
+`TTS_VOICE` で声、`TTS_INSTRUCTIONS` で話し方を選べます。
+設定・Dotの声に合わせる手順・接続APIは [docs/voice.md](docs/voice.md) を参照してください。
+
 ## License
 
 コードは MIT。sanoTTS のモデル重みと生成音声には別の
