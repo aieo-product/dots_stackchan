@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { DEFAULT_BATCH_MODEL } from "./stt/openai-batch.js";
+import { DEFAULT_REALTIME_MODEL } from "./stt/openai-realtime.js";
 
 const portSchema = z.preprocess(
   (value) => (value === undefined || value === "" ? 8790 : value),
@@ -20,10 +22,22 @@ const environmentSchema = z.object({
   BRIDGE_PORT: portSchema,
   BRIDGE_HOST: hostSchema,
   LOG_LEVEL: logLevelSchema,
+  STT_ENGINE: z.enum(["openai-realtime", "openai-batch", "fake"]).default("openai-realtime"),
+  STT_MODEL: z.string().min(1).optional(),
+  STT_BATCH_MODEL: z.string().min(1).default(DEFAULT_BATCH_MODEL),
+  STT_LANGUAGE: z.string().regex(/^[a-z]{2,3}(?:-[a-z]{2,4})?$/).default("ja"),
+  LOG_TRANSCRIPTS: z.enum(["true", "false"]).default("false"),
+  OPENAI_API_KEY: z.preprocess((value) => value === "" ? undefined : value, z.string().min(1).optional()),
 });
 
 export interface BridgeConfig {
   devicePsk: string;
+  sttEngine: "openai-realtime" | "openai-batch" | "fake";
+  sttModel: string;
+  sttBatchModel: string;
+  sttLanguage: string;
+  logTranscripts: boolean;
+  openaiApiKey?: string;
   port: number;
   host: string;
   logLevel: "debug" | "info" | "warn" | "error";
@@ -38,6 +52,12 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Bridge
 
   return {
     devicePsk: result.data.DEVICE_PSK,
+    sttEngine: result.data.STT_ENGINE,
+    sttModel: result.data.STT_MODEL ?? (result.data.STT_ENGINE === "openai-batch" ? DEFAULT_BATCH_MODEL : DEFAULT_REALTIME_MODEL),
+    sttBatchModel: result.data.STT_BATCH_MODEL,
+    sttLanguage: result.data.STT_LANGUAGE,
+    logTranscripts: result.data.LOG_TRANSCRIPTS === "true",
+    openaiApiKey: result.data.OPENAI_API_KEY,
     port: result.data.BRIDGE_PORT,
     host: result.data.BRIDGE_HOST,
     logLevel: result.data.LOG_LEVEL,
