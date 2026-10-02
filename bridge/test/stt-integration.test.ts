@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { once } from "node:events";
 import { readFileSync } from "node:fs";
+import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import WebSocket from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -108,19 +109,49 @@ describe("DeviceHub STT wiring", () => {
 
 // Opt-in by key injection; CI intentionally has no API key. No audio/transcript logging.
 describe.skipIf(!process.env.OPENAI_API_KEY)("real OpenAI synthetic-speech integration", () => {
-  it.each(["openai-realtime", "openai-batch"] as const)("recognizes スタックちゃん using %s", async (sttEngine) => {
-    const logger = createLogger("error", () => undefined);
+  it.each(["openai-realtime", "openai-batch"] as const)("measures warm paced speech using %s", async (sttEngine) => {
+    let fallbacks = 0;
+    const logger = createLogger("warn", (line) => { if (line.includes('"event":"stt_fallback"')) fallbacks++; });
     const config = loadConfig({ ...process.env, DEVICE_PSK: psk, STT_ENGINE: sttEngine });
     bridge = createBridgeServer({ host: "localhost", port: 0, psk, logger, stt: { createEngine: createSttEngineFactory(config, logger) } });
-    const { port } = await bridge.listen(); const result = once(bridge.hub, "utterance");
-    const output = run(process.execPath, ["scripts/ws-client.mjs", "--id", deviceId, "--url", `ws://localhost:${port}/device`,
-      "--wav", "bridge/test/fixtures/hello_ja.wav", "--wait-ms", "12000"], { env: { ...process.env, DEVICE_PSK: psk } });
-    // Race against replay completion so a failed provider cannot hang the test indefinitely.
-    const event = await Promise.race([result.then(([event]) => event as HubEvent<Utterance>), output.then(() => { throw new Error("No utterance received"); })]);
-    expect(event.payload.text).toContain("スタックちゃん");
-    expect(event.payload.duration_ms).toBe(Math.round((readFileSync(new URL("./fixtures/hello_ja.wav", import.meta.url)).length - 44) / 32));
-    console.info(JSON.stringify({ engine: sttEngine, duration_ms: event.payload.duration_ms, latency_ms: event.payload.latency_ms,
-      latency_target_met: event.payload.latency_ms <= 600 }));
-    await output;
-  }, 25_000);
+    const { port } = await bridge.listen();
+    // Listen before connecting: stt.ready means session.updated, not merely WS open.
+    const preparedAt = performance.now();
+    const ready = once(bridge.hub, "stt.ready", { signal: AbortSignal.timeout(5_000) });
+    const socket = await connect(port);
+    await ready;
+    const preparationMs = Math.round(performance.now() - preparedAt);
+    const pcm = readFileSync(new URL("./fixtures/hello_ja.wav", import.meta.url)).subarray(44);
+    const timings: Array<Record<string, unknown>> = [];
+    for (let seq = 1; seq <= 3; seq++) {
+      const result = once(bridge.hub, "utterance", { signal: AbortSignal.timeout(15_000) });
+      send(socket, { type: "mic.start", seq, sample_rate: 16000 });
+      const speechAt = performance.now();
+      let frames = 0;
+      for (let offset = 0; offset < pcm.length; offset += 640) {
+        const chunk = pcm.subarray(offset, offset + 640);
+        socket.send(encodeBinaryFrame(BinaryKind.microphonePcm, seq, chunk));
+        frames++;
+        // 20 ms chunks at real-time pace, including the final partial frame.
+        await delay(chunk.length / 32);
+      }
+      const endedAt = performance.now();
+      send(socket, { type: "mic.end", seq, reason: "release" });
+      const [event] = await result as [HubEvent<Utterance>];
+      const latency = event.payload.latency_ms;
+      const timing = { engine: sttEngine, turn: seq, preparation_ms: preparationMs, frames,
+        replay_ms: Math.round(endedAt - speechAt), duration_ms: event.payload.duration_ms,
+        latency_ms: latency, device_end_to_text_ms: Math.round(performance.now() - endedAt),
+        fallback_count: fallbacks, accuracy_keyword: event.payload.text.includes("スタックちゃん"),
+        latency_target_met: latency <= 600 };
+      console.info(JSON.stringify(timing));
+      timings.push(timing);
+      expect(event.payload.text).toContain("スタックちゃん");
+      expect(event.payload.duration_ms).toBe(Math.round(pcm.length / 32));
+      expect(performance.now() - speechAt).toBeGreaterThanOrEqual(pcm.length / 32 * 0.95);
+      if (sttEngine === "openai-realtime") expect(fallbacks).toBe(0);
+    }
+    console.table(timings);
+    socket.close();
+  }, 60_000);
 });

@@ -38,7 +38,10 @@ reuses it across turns to avoid a handshake after release. It sends
 `session.update` with `session.type="transcription"`, PCM at 24 kHz,
 `audio.input.transcription.languages=[STT_LANGUAGE]`, `delay="low"`, a
 `スタックちゃん` vocabulary hint, and `turn_detection=null`. Push-to-talk controls
-commit explicitly. The model does not support server VAD. The device's 16 kHz
+commit explicitly. `prepare()` resolves after `session.updated`, and the hub emits
+`stt.ready` once setup succeeds. Applications and latency tests can wait for this
+event before `mic.start`; a device that starts earlier still uses a bounded setup
+buffer. Setup failure emits no readiness event and leaves batch fallback available. The model does not support server VAD. The device's 16 kHz
 input is linearly resampled to 24 kHz with interpolation phase preserved across
 frames. Raw PCM, not a WAV header, is base64 encoded in
 `input_audio_buffer.append`. Final results are correlated by `item_id` with
@@ -150,9 +153,12 @@ akc run -- npx vitest run bridge/test/stt-integration.test.ts
 ```
 
 CI has no API key. Real OpenAI tests automatically skip unless `OPENAI_API_KEY` is
-set. They exercise both streaming with fallback and direct batch via the real
-WebSocket client, require `スタックちゃん` in the final result, and report only
-numeric duration/latency and whether the 600-ms target was met. They do not enforce
+set. They exercise both streaming with fallback and direct batch via an authenticated
+fake device, wait for `stt.ready` before recording, and replay 640-byte frames at
+20-ms intervals. Three turns reuse the same prepared connection. They require `スタックちゃん` in the final result, and report only
+numeric preparation/replay/duration/latency timings, keyword accuracy, and whether
+the 600-ms target was met. Realtime must report zero batch fallbacks; the test
+fails if it measures fallback instead of the requested streaming backend. They do not enforce
 that target as a stable network-dependent unit assertion. Streaming fallback is
 logged as `stt_fallback`; a fallback success does not establish Realtime latency.
 Unit tests simulate provider responses/errors, timeout, cancellation, result
@@ -187,3 +193,26 @@ Hardware acceptance still needs K151 push-to-talk and playback-suppression check
 synthetic speech played into its microphone, warm API latency measurement, and
 redacted bridge logs plus a photo of the recording indicator. Do not attach human
 voice recordings.
+
+## Realtime latency follow-up
+
+The reviewer measured this 1.83-second fixture before the readiness follow-up:
+
+| Engine | Before: end → final text | After: end → final text |
+|---|---:|---:|
+| `openai-realtime` | 1,798 ms | Pending reviewer rerun with a real key |
+| `openai-batch` | 851 ms | Pending reviewer rerun with a real key |
+
+Neither baseline met 600 ms. A slow streaming result alone does not identify a
+service-side cause. Inspection found that preconnection existed but setup was
+not awaited by the measurement. The WAV CLI already paced audio at 20 ms and the
+engine already sent commit synchronously from `end()` on a ready socket. This
+follow-up makes completed preparation awaitable, disables WebSocket compression,
+and tests those properties explicitly. The integration test now waits for the
+server's `session.updated`, streams throughout speech, commits at release, and
+prints per-turn JSON plus a table. `latency_ms` starts when the bridge receives
+`mic.end`; `device_end_to_text_ms` also includes local WebSocket delivery. Setup
+and the 1.83 seconds of speech are excluded from both end-to-text measurements.
+There is no OpenAI key in this implementation session, so no after result or
+claim of reaching 600 ms is fabricated. Rerun the key-gated command above to fill
+in the after measurements; compare all three warm turns and report model choice.

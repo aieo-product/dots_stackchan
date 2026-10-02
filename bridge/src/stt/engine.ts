@@ -7,7 +7,8 @@ export interface SttResult {
 
 /** One ordered PCM16/16 kHz/mono turn at a time; partials contain text deltas. */
 export interface SttEngine {
-  prepare(): void;
+  /** Resolves only once connection/model setup is complete; callers may await prewarming. */
+  prepare(): void | Promise<void>;
   start(seq: number): void;
   push(pcm: Uint8Array): void;
   end(): Promise<SttResult>;

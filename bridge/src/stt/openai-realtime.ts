@@ -38,14 +38,26 @@ export class OpenAiRealtime extends EventEmitter implements SttEngine {
   private connectTimer?: NodeJS.Timeout;
   private turn?: Turn;
   private lastItemId?: string;
+  private preparation?: Promise<void>;
+  private resolvePreparation?: () => void;
+  private rejectPreparation?: (error: Error) => void;
 
   public constructor(private readonly options: OpenAiRealtimeOptions) { super(); }
 
-  public prepare(): void {
-    if (this.closed || this.socket !== undefined) return;
+  public prepare(): Promise<void> {
+    if (this.closed) return Promise.reject(new Error("Realtime STT is closed"));
+    if (this.preparation !== undefined) return this.preparation;
+    const preparation = new Promise<void>((resolve, reject) => {
+      this.resolvePreparation = resolve;
+      this.rejectPreparation = reject;
+    });
+    this.preparation = preparation;
+    // Preparation also runs speculatively on connect/start; rejection remains awaitable.
+    void preparation.catch(() => undefined);
     try {
       const socket = this.options.connect?.() ?? new WebSocket("wss://api.openai.com/v1/realtime?intent=transcription", {
         headers: { Authorization: `Bearer ${this.options.apiKey}` }, maxPayload: 64 * 1_024,
+        perMessageDeflate: false,
         handshakeTimeout: this.options.connectTimeoutMs ?? 3_000,
       });
       this.socket = socket;
@@ -78,6 +90,7 @@ export class OpenAiRealtime extends EventEmitter implements SttEngine {
         try { this.handleEvent(JSON.parse(data.toString())); } catch { this.fail(); }
       });
     } catch { this.fail(); }
+    return preparation;
   }
 
   public start(): void {
@@ -85,7 +98,7 @@ export class OpenAiRealtime extends EventEmitter implements SttEngine {
     this.turn = {
       queued: new PcmBuffer(), resampler: new PcmResampler(), bytes: 0, committed: false, ending: false,
     };
-    this.prepare();
+    void this.prepare().catch(() => undefined);
   }
 
   public push(pcm: Uint8Array): void {
@@ -147,6 +160,9 @@ export class OpenAiRealtime extends EventEmitter implements SttEngine {
       if (this.ready) return;
       clearTimeout(this.connectTimer);
       this.ready = true;
+      this.resolvePreparation?.();
+      this.resolvePreparation = undefined;
+      this.rejectPreparation = undefined;
       const turn = this.turn;
       if (turn !== undefined && turn.error === undefined) {
         this.append(turn.resampler.push(turn.queued.bytes()));
@@ -185,6 +201,10 @@ export class OpenAiRealtime extends EventEmitter implements SttEngine {
     if (turn.reject !== undefined) { this.turn = undefined; turn.reject(turn.error); }
   }
   private dropSocket(): void {
+    this.rejectPreparation?.(new Error("Realtime transcription unavailable"));
+    this.resolvePreparation = undefined;
+    this.rejectPreparation = undefined;
+    this.preparation = undefined;
     clearTimeout(this.connectTimer);
     const socket = this.socket;
     this.socket = undefined;

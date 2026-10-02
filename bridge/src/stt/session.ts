@@ -38,7 +38,7 @@ export class SttSession extends EventEmitter {
     super();
     engine.on("partial", this.partial);
   }
-  public prepare(): void { this.engine.prepare(); }
+  public async prepare(): Promise<void> { await this.engine.prepare(); }
   public start(seq: number): void {
     if (this.closed || this.recording !== undefined) { this.warn("busy"); return; }
     const recording: Recording = { seq, bytes: 0, ending: false };

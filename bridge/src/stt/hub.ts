@@ -22,7 +22,9 @@ export function attachStt(hub: DeviceHub, options: SttHubOptions, logger: Logger
     sessions.set(event.deviceId, session);
     session.on("utterance", (payload: Utterance) => hub.emit("utterance", { deviceId: event.deviceId, payload }));
     session.on("partial", (payload: { seq: number; delta: string }) => hub.emit("stt.partial", { deviceId: event.deviceId, payload }));
-    session.prepare();
+    void session.prepare().then(() => {
+      if (sessions.get(event.deviceId) === session) hub.emit("stt.ready", { deviceId: event.deviceId, payload: {} });
+    }).catch(() => logger.warn("stt_prepare_failed", {}));
   };
   const start = ({ deviceId, payload }: HubEvent<Extract<DeviceToBridgeMessage, { type: "mic.start" }>>): void => {
     const state = hub.getStatus(deviceId).state;

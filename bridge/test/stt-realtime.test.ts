@@ -17,6 +17,7 @@ async function setup(options: { acknowledge?: boolean; finalize?: boolean; final
   await once(server, "listening");
   const messages: Array<Record<string, unknown>> = [];
   let peer: WebSocket | undefined;
+  let client: WebSocket | undefined;
   let turns = 0;
   let connections = 0;
   const send = (message: Record<string, unknown>): void => { peer?.send(JSON.stringify(message)); };
@@ -33,12 +34,36 @@ async function setup(options: { acknowledge?: boolean; finalize?: boolean; final
       }
     });
   });
-  const engine = new OpenAiRealtime({ apiKey: "test-only-key", connect: () => new WebSocket(`ws://localhost:${(server.address() as AddressInfo).port}`), ...options });
+  const engine = new OpenAiRealtime({ apiKey: "test-only-key", connect: () => (client = new WebSocket(`ws://localhost:${(server.address() as AddressInfo).port}`)), ...options });
   resources.push({ engine, server });
-  return { engine, messages, send, get connections() { return connections; }, get peer() { return peer; } };
+  return { engine, messages, send, get connections() { return connections; }, get peer() { return peer; }, get client() { return client; } };
 }
 
 describe("OpenAiRealtime over WebSocket", () => {
+  it("awaits session.updated before warm speech and commits immediately at end", async () => {
+    const fixture = await setup({ acknowledge: false });
+    const { engine, messages, send } = fixture;
+    let ready = false;
+    const preparation = engine.prepare().then(() => { ready = true; });
+    await vi.waitFor(() => expect(messages[0]?.type).toBe("session.update"));
+    expect(ready).toBe(false);
+    send({ type: "session.updated" });
+    await preparation;
+    if (fixture.client === undefined) throw new Error("Missing test client");
+    const socketSend = vi.spyOn(fixture.client, "send");
+    engine.start();
+    for (let frame = 0; frame < 5; frame++) {
+      engine.push(Buffer.alloc(640));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(messages.filter((message) => message.type === "input_audio_buffer.append")).toHaveLength(5);
+    expect(messages.some((message) => message.type === "input_audio_buffer.commit")).toBe(false);
+    const result = engine.end();
+    expect(JSON.parse(String(socketSend.mock.calls.at(-1)?.[0]))).toEqual({ type: "input_audio_buffer.commit" });
+    await result;
+    expect(messages.at(-1)?.type).toBe("input_audio_buffer.commit");
+  });
+
   it("uses the current transcription schema, streams before end, and reuses a warm connection", async () => {
     const fixture = await setup(); const { engine, messages, send } = fixture;
     engine.prepare();

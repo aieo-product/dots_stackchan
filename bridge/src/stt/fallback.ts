@@ -17,7 +17,7 @@ export class FallbackStt extends EventEmitter implements SttEngine {
     super();
     primary.on("partial", this.partial);
   }
-  public prepare(): void { this.primary.prepare(); }
+  public prepare(): void | Promise<void> { return this.primary.prepare(); }
   public start(seq: number): void {
     this.seq = seq;
     this.failed = false;
