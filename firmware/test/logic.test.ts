@@ -19,6 +19,12 @@ const run = (...args: (string | number)[]): string =>
   execFileSync(executable, args.map(String), { encoding: "utf8" });
 
 describe("firmware native logic", () => {
+  it("packs 20 ms signed PCM16 microphone frames with little endian seq in 643 bytes", () => {
+    expect(run("mic-pack")).toBe("643");
+  });
+  it("caps sample-clock capture at 750 frames / 240000 samples including clock wrap and stalls", () => {
+    expect(run("mic-cadence")).toBe("240000");
+  });
   it("preserves PCM16 sample order and signed values across ring wrap", () => {
     expect(run("ring-wrap")).toBe("ok");
   });

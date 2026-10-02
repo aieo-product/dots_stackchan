@@ -106,13 +106,15 @@ bool SanoTtsVoice::start(uint16_t seq, const String& kana) {
 #endif
 }
 
-void SanoTtsVoice::cancel() {
+void SanoTtsVoice::cancel(bool notify) {
 #if DOTS_SANOTTS
   stop_ = true;
-  if (active_ && !startedPlayback_ && failureHandler_) failureHandler_(seq_);
+  if (notify && active_ && !startedPlayback_ && failureHandler_) failureHandler_(seq_);
   active_ = false;
-  if (startedPlayback_ && player_) player_->cancel(true);
+  if (startedPlayback_ && player_) player_->cancel(notify);
   else releaseRequested_ = true;
+#else
+  (void)notify;
 #endif
 }
 

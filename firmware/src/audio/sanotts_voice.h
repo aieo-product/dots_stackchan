@@ -18,7 +18,7 @@ class SanoTtsVoice {
 
   void begin(AudioPlayer& player, FailureHandler failureHandler);
   bool start(uint16_t seq, const String& kana);
-  void cancel();
+  void cancel(bool notify = true);
   void update();
   bool available() const;
   bool busy() const {

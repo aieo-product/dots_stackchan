@@ -9,11 +9,11 @@ void SpeechDispatcher::begin(AudioPlayer& player, SanoTtsVoice& voice,
 void SpeechDispatcher::finished(uint16_t seq) {
   if (active_ && seq == seq_) active_ = false;
 }
-void SpeechDispatcher::fail(std::deque<Pending>::iterator entry) {
+void SpeechDispatcher::fail(std::deque<Pending>::iterator entry, bool notify) {
   const auto seq = entry->command.seq;
   if (entry->pcm) heap_caps_free(entry->pcm);
   pending_.erase(entry);
-  if (done_) done_(seq, false);
+  if (notify && done_) done_(seq, false);
 }
 void SpeechDispatcher::command(const protocol::Command& command) {
   using protocol::CommandType;
@@ -56,14 +56,14 @@ void SpeechDispatcher::append(const protocol::BinaryFrame& frame) {
     return;
   }
 }
-void SpeechDispatcher::cancel() {
-  while (!pending_.empty()) fail(pending_.begin());
-  voice_->cancel();
-  player_->cancel();
+void SpeechDispatcher::cancel(bool notify) {
+  while (!pending_.empty()) fail(pending_.begin(), notify);
+  voice_->cancel(notify);
+  player_->cancel(notify);
   active_ = false;
 }
 void SpeechDispatcher::update() {
-  if (active_ || player_->busy() || voice_->busy() || pending_.empty()) return;
+  if (paused_ || active_ || player_->busy() || voice_->busy() || pending_.empty()) return;
   Pending entry = std::move(pending_.front());
   pending_.pop_front();
   seq_ = entry.command.seq;

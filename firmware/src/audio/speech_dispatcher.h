@@ -12,7 +12,8 @@ class SpeechDispatcher {
   void command(const protocol::Command& command);
   void append(const protocol::BinaryFrame& frame);
   void finished(uint16_t seq);
-  void cancel();
+  void cancel(bool notify = true);
+  void setPaused(bool paused) { paused_ = paused; }
   void update();
  private:
   struct Pending {
@@ -27,8 +28,9 @@ class SpeechDispatcher {
   FaceController* face_ = nullptr;
   AudioPlayer::DoneHandler done_;
   bool active_ = false;
+  bool paused_ = false;
   bool pcmOwner_ = false;
   uint16_t seq_ = 0;
-  void fail(std::deque<Pending>::iterator entry);
+  void fail(std::deque<Pending>::iterator entry, bool notify = true);
 };
 }

@@ -8,13 +8,43 @@
 #include "servo/packet.h"
 #include "audio/readiness.h"
 #include "audio/pcm_ring.h"
+#include "audio/mic_frame.h"
 extern "C" {
 #include "g2p.h"
 }
 int main(int argc, char** argv) {
   if (argc < 2) return 1;
   const std::string mode = argv[1];
-  if (mode == "binary") {
+  if (mode == "mic-pack") {
+    int16_t pcm[dots::audio::kMicSamples] = {};
+    pcm[0] = -32768; pcm[1] = -1; pcm[2] = 32767;
+    dots::audio::MicFrame packed;
+    packed.pack(0x1234, pcm);
+    dots::protocol::BinaryFrame frame;
+    assert(dots::protocol::decodeBinary(packed.bytes, sizeof(packed), frame));
+    assert(frame.kind == 1 && frame.seq == 0x1234 && frame.length == 640);
+    const uint8_t expected[] = {0, 128, 255, 255, 255, 127};
+    for (size_t i = 0; i < sizeof(expected); ++i) assert(frame.payload[i] == expected[i]);
+    for (size_t i = 6; i < frame.length; ++i) assert(frame.payload[i] == 0);
+    packed.pack(65535, pcm);
+    assert(packed.bytes[1] == 255 && packed.bytes[2] == 255);
+    packed.pack(0, pcm);
+    assert(packed.bytes[1] == 0 && packed.bytes[2] == 0);
+    std::cout << sizeof(packed);
+  } else if (mode == "mic-cadence") {
+    dots::audio::MicCadence cadence;
+    constexpr uint32_t start = UINT32_MAX - 100;
+    for (size_t i = 0; i < 750; ++i) {
+      assert(!cadence.timedOut(start + i * 20, start));
+      assert(cadence.complete());
+    }
+    assert(cadence.frames() == 750 && !cadence.complete());
+    assert(cadence.timedOut(start + 15000, start));
+    dots::audio::MicCadence stalled;
+    assert(!stalled.timedOut(start + 14999, start));
+    assert(stalled.timedOut(start + 15000, start));
+    std::cout << cadence.frames() * dots::audio::kMicSamples;
+  } else if (mode == "binary") {
     std::vector<uint8_t> bytes;
     for (int i = 2; i < argc; ++i) bytes.push_back(std::atoi(argv[i]));
     dots::protocol::BinaryFrame frame;

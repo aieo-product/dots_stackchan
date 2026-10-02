@@ -5,6 +5,8 @@
 #include <esp_heap_caps.h>
 #include "audio/player.h"
 #include "audio/speech_dispatcher.h"
+#include "audio/mic.h"
+#include "input.h"
 #include "net/ws_link.h"
 #if DOTS_SANOTTS
 #include "audio/sanotts_voice.h"
@@ -23,11 +25,14 @@ extern "C" time_t time(time_t* value) DOTS_TIME_NOEXCEPT {
 }
 static float mouth = 0;
 static std::string voiceMode;
+static std::string faceState;
+static bool showingCredits = false;
 namespace dots {
 void FaceController::setMouth(float value) { mouth = value; }
-void FaceController::setState(const char*) {}
+void FaceController::setState(const char* value) { faceState = value; }
 void FaceController::setVoiceMode(const char* value) { voiceMode = value; }
 bool FaceController::setExpression(const String&) { return true; }
+void FaceController::showCredits(bool value) { showingCredits = value; }
 }
 using namespace dots;
 static protocol::Command decode(const char* text) {
@@ -84,8 +89,138 @@ int main() {
   assert(connections == 2 && faces == 1);
   link.update(false);
   assert(!link.connected());
+  socket.handler(WStype_CONNECTED, nullptr, 0);
+  assert(protocol::hello("test", false, true, true).find("\"mic\":true") != std::string::npos);
+  assert(protocol::micStart(65535) == "{\"type\":\"mic.start\",\"seq\":65535,\"sample_rate\":16000}");
+  assert(protocol::micEnd(65535, "release") == "{\"type\":\"mic.end\",\"seq\":65535,\"reason\":\"release\"}");
+  uint8_t micBytes[] = {1, 255, 255, 0, 128};
+  assert(link.sendBinary(micBytes, sizeof(micBytes)) && socket.binary.size() == 1);
+  std::atomic<bool> aborted{true};
+  assert(!link.sendBinary(micBytes, sizeof(micBytes), &aborted));
+  assert(!link.send(protocol::micEnd(65535, "release"), &aborted));
+  assert(!link.sendBinary(micBytes, 4097) && !link.sendBinary(nullptr, 5));
+  link.update(false);
+  assert(!link.sendBinary(micBytes, sizeof(micBytes)));
 
   FaceController avatar;
+  DeviceInput input;
+  std::vector<bool> holds;
+  unsigned inputEvents = 0;
+  input.begin(avatar, [&](const char*, const String&) { ++inputEvents; },
+      [&](bool held) { holds.push_back(held); });
+  M5.Touch.details = {{true}}; input.update(); input.update();
+  assert(holds == std::vector<bool>{true} && inputEvents == 0);
+  M5.Touch.details = {{true}, {true}}; input.update();
+  M5.Touch.details = {{false}, {true}}; input.update();
+  M5.BtnA.pressed = true; M5.Touch.details.clear(); input.update();
+  assert(holds.size() == 1); // wait until all sources are released
+  M5.BtnA.pressed = false; input.update(); input.update();
+  assert((holds == std::vector<bool>{true, false}));
+  input.showCredits(true); assert(showingCredits);
+  M5.BtnA.pressed = true; input.update(); input.update();
+  assert(!showingCredits && holds.size() == 3 && holds.back());
+  M5.BtnA.pressed = false; input.update();
+  assert(holds.size() == 4 && !holds.back());
+  M5.BtnB.hold = true; input.update(); assert(showingCredits);
+  M5.BtnB.hold = false; input.showCredits(false);
+  Microphone mic;
+  mic.begin(link, avatar);
+  assert(mic.available() && !mic.start()); // offline never records
+  socket.handler(WStype_CONNECTED, nullptr, 0);
+  auto startMic = [&] {
+    testMicTasks.clear();
+    assert(mic.start() && mic.busy());
+    assert(!M5.Speaker.running && M5.Mic.running && faceState == "listening");
+    assert(testMicTasks.size() == 2 && !mic.start());
+  };
+  startMic();
+  unsigned capturedFrames = 0;
+  testDelayHook = [&] {
+    assert(!M5.Speaker.running);
+    if (++capturedFrames <= 3) M5.Mic.complete();
+    else mic.release();
+  };
+  const auto binaryBeforeMic = socket.binary.size();
+  testMicTasks[1](); // capture owner, while TX is deliberately held back
+  assert(!M5.Mic.running && !M5.Speaker.running);
+  mic.update(); assert(mic.busy()); // must flush PCM before mic.end / restoring speaker
+  testMicTasks[0](); // independent TX task drains all frames, then sends exactly one end
+  mic.update();
+  assert(!mic.busy() && M5.Speaker.running && faceState == "thinking");
+  assert(socket.binary.size() == binaryBeforeMic + 3);
+  for (size_t i = binaryBeforeMic; i < socket.binary.size(); ++i) {
+    const auto& pcm = socket.binary[i];
+    assert(pcm.size() == 643 && pcm[0] == 1 && pcm[1] == 1 && pcm[2] == 0);
+    assert(pcm[3] == 0xd2 && pcm[4] == 4);
+  }
+  assert(socket.sent.back() == protocol::micEnd(1, "release"));
+  const auto endedMessages = socket.sent.size();
+  mic.release(); mic.update();
+  assert(socket.sent.size() == endedMessages); // no duplicate end
+
+  // Full 15 seconds: model a TX consumer draining the bounded queue every frame.
+  startMic();
+  testQueueSent = [&](TestQueue* queue) { queue->entries.pop_front(); };
+  capturedFrames = 0;
+  const uint32_t captureStart = testMillis;
+  testDelayHook = [&] {
+    testMillis = captureStart + ++capturedFrames * 20;
+    M5.Mic.complete();
+  };
+  testMicTasks[1](); testMicTasks[0](); mic.update();
+  assert(capturedFrames == 750 && socket.sent.back() == protocol::micEnd(2, "timeout"));
+  assert(!mic.busy() && faceState == "thinking");
+  testQueueSent = nullptr;
+
+  // Without TX progress, bound memory at 32 frames and end instead of dropping PCM.
+  startMic(); capturedFrames = 0;
+  testDelayHook = [&] { ++capturedFrames; M5.Mic.complete(); };
+  testMicTasks[1](); testMicTasks[0](); mic.update();
+  assert(capturedFrames == 33 && socket.sent.back() == protocol::micEnd(3, "timeout"));
+
+  // Disconnect abort discards queued audio/end, including after reconnect.
+  startMic();
+  testDelayHook = [&] { M5.Mic.complete(); mic.abort(); };
+  testMicTasks[1]();
+  const auto abortedText = socket.sent.size(), abortedBinary = socket.binary.size();
+  testMicTasks[0](); mic.update();
+  assert(socket.sent.size() == abortedText && socket.binary.size() == abortedBinary);
+  assert(!mic.busy() && faceState == "idle");
+
+  // An early release before capture is scheduled still has ordered start/end.
+  startMic(); mic.release(); testMicTasks[1](); testMicTasks[0](); mic.update();
+  assert(socket.sent.back() == protocol::micEnd(5, "release"));
+  testDelayHook = nullptr;
+  M5.Mic.failBegin = true;
+  assert(!mic.start() && !mic.busy() && M5.Speaker.running);
+  M5.Mic.failBegin = false;
+  testFailTask = "mic-capture";
+  testMicTasks.clear(); assert(mic.start());
+  testMicTasks[0](); mic.update();
+  assert(socket.sent.back() == protocol::micEnd(6, "timeout") && !mic.busy());
+  testFailTask = "mic-tx";
+  assert(mic.start()); mic.update();
+  assert(socket.sent.back() == protocol::micEnd(7, "timeout") && !mic.busy());
+  testFailTask.clear();
+  assert(M5.Mic.callback == nullptr && !M5.Mic.running && M5.Speaker.running);
+  startMic(); M5.Mic.failRecord = true;
+  testMicTasks[1](); testMicTasks[0](); mic.update();
+  assert(socket.sent.back() == protocol::micEnd(8, "timeout") && !mic.busy());
+  M5.Mic.failRecord = false;
+  startMic();
+  testDelayHook = [&] { testMillis += 15000; }; // no mic callbacks: wall-clock cap still works
+  testMicTasks[1](); testMicTasks[0](); mic.update();
+  assert(socket.sent.back() == protocol::micEnd(9, "timeout") && !mic.busy());
+  testDelayHook = nullptr;
+#if DOTS_MIC_VAD
+  startMic(); capturedFrames = 0;
+  testQueueSent = [&](TestQueue* queue) { queue->entries.pop_front(); };
+  testDelayHook = [&] { M5.Mic.complete(++capturedFrames == 1 ? 1234 : 0); };
+  testMicTasks[1](); testMicTasks[0](); mic.update();
+  assert(capturedFrames == 41 && socket.sent.back() == protocol::micEnd(10, "vad"));
+  testQueueSent = nullptr; testDelayHook = nullptr;
+#endif
+
   AudioPlayer player;
   std::vector<std::pair<uint16_t, bool>> done;
   player.begin(avatar, [&](uint16_t seq, bool ok) { done.emplace_back(seq, ok); });
@@ -237,6 +372,20 @@ int main() {
   dispatcher.cancel();
   assert(done.size() == 4 && !done[2].second && !done[3].second);
   M5.Speaker.slots = 0; player.update();
+  const auto doneBeforeBargeIn = done.size();
+  dispatcher.setPaused(true);
+  start.seq = 54; dispatcher.command(start);
+  assert(!player.busy());
+  dispatcher.setPaused(false); dispatcher.update();
+  assert(player.busy());
+  pending.seq = 55; dispatcher.command(pending);
+  dispatcher.cancel(false);
+  assert(done.size() == doneBeforeBargeIn && !player.busy());
+  faceState = "listening";
+  dispatcher.cancel(false);
+  assert(faceState == "listening"); // cancelled speech never resets an active mic face
+  player.chime(); assert(M5.Speaker.chime);
+  player.cancel(false); assert(!M5.Speaker.chime);
   player.begin(avatar, [&](uint16_t seq, bool ok) { done.emplace_back(seq, ok); });
 #if DOTS_SANOTTS
   SanoTtsVoice voice;
@@ -263,6 +412,9 @@ int main() {
   testTask();
   voice.update();
   assert(done.size() == 2 && done.back().first == 45 && !done.back().second);
+  assert(voice.start(46, "こんにちわ"));
+  voice.cancel(false); testTask(); voice.update();
+  assert(done.size() == 2 && !voice.busy()); // silent barge-in during synthesis
   // PCM arriving during device inference waits for inference and speaker release.
   player.begin(avatar, dispatchedDone);
   dispatcherVoice.begin(player, [&](uint16_t seq) { dispatchedDone(seq, false); });
@@ -301,5 +453,5 @@ int main() {
   dispatcher.cancel();
   testPullHook = nullptr; testTask(); dispatcherVoice.update();
 #endif
-  std::cout << "host: protocol validation, mock bridge auth/reconnect, PCM streaming/underrun/wrap/overflow/cancel and serialized voice ownership passed\n";
+  std::cout << "host: protocol/auth, mic release/750-frame cap/overflow/abort/failure, PCM streaming and silent speech interruption passed\n";
 }

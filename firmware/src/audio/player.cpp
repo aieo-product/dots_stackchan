@@ -27,11 +27,14 @@ void AudioPlayer::releaseBuffer() {
 
 void AudioPlayer::cancel(bool notify) {
   const bool active = receiving_ || playing_;
+  const bool hadSound = active || chiming_;
   const uint16_t cancelledSeq = seq_;
   if (playing_) M5.Speaker.stop(0);
+  if (chiming_) M5.Speaker.stop(1);
+  chiming_ = false;
   receiving_ = false;
   playing_ = false;
-  if (face_) {
+  if (face_ && hadSound) {
     face_->setMouth(0);
     face_->setState("idle");
   }

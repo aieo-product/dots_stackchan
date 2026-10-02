@@ -10,6 +10,7 @@ class WebSocketsClient {
   std::function<void(WStype_t, uint8_t*, size_t)> handler;
   std::string headers;
   std::vector<std::string> sent;
+  std::vector<std::vector<uint8_t>> binary;
   unsigned starts = 0;
   bool verified = false;
   WebSocketsClient() { instance = this; }
@@ -26,4 +27,7 @@ class WebSocketsClient {
   void disconnect() { handler(WStype_DISCONNECTED, nullptr, 0); }
   void loop() {}
   bool sendTXT(String& value) { sent.push_back(value); return true; }
+  bool sendBIN(uint8_t* data, size_t length) {
+    binary.emplace_back(data, data + length); return true;
+  }
 };
