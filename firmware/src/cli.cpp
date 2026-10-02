@@ -5,7 +5,11 @@ namespace dots {
 void SerialCli::execute() {
   const auto& config = store_->get();
   bool ok = false;
-  if (line_.startsWith("wifi:")) {
+  if ((line_ == "credits:on" || line_ == "credits:off") && creditsHandler_) {
+    creditsHandler_(line_ == "credits:on");
+    Serial.println("credits updated");
+    return;
+  } else if (line_.startsWith("wifi:")) {
     const int split = line_.indexOf(':', 5);
     if (split > 5) ok = store_->addWifi(line_.substring(5, split), line_.substring(split + 1));
   } else if (line_ == "wifi-list") {

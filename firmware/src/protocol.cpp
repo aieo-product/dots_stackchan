@@ -74,13 +74,28 @@ bool decodeText(const uint8_t* data, size_t length, Command& command) {
   return true;
 }
 
-String hello(const char* firmware, bool sanotts, bool servo) {
+String hello(const char* firmware, bool sanotts, bool servo, bool mic) {
   JsonDocument doc;
   doc["type"] = "hello";
   doc["fw"] = firmware;
   doc["caps"]["sanotts"] = sanotts;
   doc["caps"]["servo"] = servo;
-  doc["caps"]["mic"] = false;
+  doc["caps"]["mic"] = mic;
+  return serialize(doc);
+}
+
+String micStart(uint16_t seq) {
+  JsonDocument doc;
+  doc["type"] = "mic.start";
+  doc["seq"] = seq;
+  doc["sample_rate"] = 16000;
+  return serialize(doc);
+}
+String micEnd(uint16_t seq, const char* reason) {
+  JsonDocument doc;
+  doc["type"] = "mic.end";
+  doc["seq"] = seq;
+  doc["reason"] = reason;
   return serialize(doc);
 }
 

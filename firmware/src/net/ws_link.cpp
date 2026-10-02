@@ -5,6 +5,7 @@
 
 #include "net/tls_roots.h"
 #include "net/endpoint.h"
+#include "protocol_frame.h"
 
 #ifndef DOTS_TLS_VERIFY
 #define DOTS_TLS_VERIFY 1
@@ -92,6 +93,7 @@ void WsLink::start() {
 }
 
 void WsLink::update(bool wifiConnected) {
+  SocketGuard guard(lock_);
   if (!wifiConnected) {
     if (started_) socket_.disconnect();
     started_ = false;
@@ -110,9 +112,16 @@ void WsLink::update(bool wifiConnected) {
   }
 }
 
-bool WsLink::send(const String& text) {
+bool WsLink::send(const String& text, const std::atomic<bool>* cancelled) {
+  SocketGuard guard(lock_);
   String mutableText(text);
-  return connected_ && socket_.sendTXT(mutableText);
+  return connected_ && (!cancelled || !cancelled->load()) && socket_.sendTXT(mutableText);
+}
+
+bool WsLink::sendBinary(uint8_t* data, size_t length, const std::atomic<bool>* cancelled) {
+  SocketGuard guard(lock_);
+  return connected_ && (!cancelled || !cancelled->load()) && data && length >= 3 &&
+      length <= protocol::kMaxBinaryFrameBytes && socket_.sendBIN(data, length);
 }
 
 void WsLink::handleEvent(WStype_t type, uint8_t* payload, size_t length) {

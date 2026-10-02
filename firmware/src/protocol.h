@@ -34,7 +34,9 @@ struct Command {
 };
 
 bool decodeText(const uint8_t* data, size_t length, Command& command);
-String hello(const char* firmware, bool sanotts, bool servo);
+String hello(const char* firmware, bool sanotts, bool servo, bool mic = false);
+String micStart(uint16_t seq);
+String micEnd(uint16_t seq, const char* reason);
 String state(const char* value);
 String event(const char* kind, const String& where = "");
 String ttsDone(uint16_t seq, bool ok);

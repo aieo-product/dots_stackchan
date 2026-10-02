@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <WebSocketsClient.h>
 #include <functional>
+#include <atomic>
+#include "net/socket_lock.h"
 
 #include "config_store.h"
 
@@ -18,7 +20,8 @@ class WsLink {
              BinaryHandler binaryHandler, StatusHandler statusHandler);
   void update(bool wifiConnected);
   bool connected() const { return connected_; }
-  bool send(const String& text);
+  bool send(const String& text, const std::atomic<bool>* cancelled = nullptr);
+  bool sendBinary(uint8_t* data, size_t length, const std::atomic<bool>* cancelled = nullptr);
 
  private:
   struct Endpoint {
@@ -35,7 +38,8 @@ class WsLink {
   StatusHandler statusHandler_;
   Endpoint endpoint_;
   bool started_ = false;
-  bool connected_ = false;
+  std::atomic<bool> connected_{false};
+  SocketLock lock_;
   uint32_t retryAt_ = 0;
   String headers_;
 

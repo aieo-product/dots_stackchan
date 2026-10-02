@@ -39,7 +39,7 @@ void FaceController::setState(const char* state) {
   if (state_ == state) return;
   state_ = state;
   if (state_ == "idle") expressionOverride_ = false;
-  if (!credits_) applyStateExpression();
+  if (!credits_) { applyStateExpression(); drawStatus(); }
   if (stateHandler_) stateHandler_(state);
 }
 
@@ -58,7 +58,7 @@ void FaceController::setVoiceMode(const char* mode) {
 }
 
 void FaceController::drawStatus() {
-  const String status = String(online_ ? "online" : "offline") + " / " + voiceMode_;
+  const String status = String(online_ ? "online" : "offline") + " / " + voiceMode_ + " / " + state_;
   avatar_.setSpeechText(status.c_str());
 }
 
@@ -69,7 +69,7 @@ void FaceController::drawCredits() {
   M5.Display.setFont(&fonts::efontJA_10);
   M5.Display.setTextWrap(true);
   M5.Display.setCursor(8, 8);
-  M5.Display.println("Credits (hold to return)");
+  M5.Display.println("Credits (hold B to return)");
   const String text(kModelCredits);
   int from = 0;
   for (unsigned line = 0; line < creditsPage_ * 4 && from < text.length(); ++line) {
