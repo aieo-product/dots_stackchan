@@ -62,8 +62,11 @@ There is no background retry loop. A subsequent turn reconnects if necessary.
 
 | Environment variable | Default | Meaning |
 |---|---|---|
-| `STT_ENGINE` | `openai-realtime` | `openai-realtime`, `openai-batch`, or `fake` |
-| `STT_MODEL` | `gpt-live-transcribe` | Primary model; defaults to `gpt-transcribe` in batch mode |
+| `STT_ENGINE` | `openai-realtime` | `openai-realtime`, `openai-batch`, `local`, or `fake` |
+| `STT_MODEL` | `gpt-live-transcribe` | Primary model; `gpt-transcribe` in batch mode; `mlx-community/whisper-turbo` for local MLX |
+| `STT_LOCAL_BACKEND` | `mlx-whisper` on Apple Silicon; `whisper-cpp` elsewhere | Resident Python worker or existing HTTP server |
+| `STT_LOCAL_URL` | `http://localhost:8080/inference` | Full whisper-server inference endpoint; sibling `health` endpoint checks readiness |
+| `STT_LOCAL_PYTHON` | `python3` | Python executable with mlx-whisper installed; a path is accepted, shell arguments are not |
 | `STT_BATCH_MODEL` | `gpt-transcribe` | Fallback model, independently configurable |
 | `STT_LANGUAGE` | `ja` | Expected language code; also emitted as `lang` |
 | `LOG_TRANSCRIPTS` | `false` | Explicit `true` includes final text in local bridge logs |
@@ -82,7 +85,9 @@ Unresolved `keychain://` API references are rejected at startup. `fake` requires
 no OpenAI key and always returns a deterministic synthetic result; it does not
 recognize speech. The `SttEngine` interface (`prepare`, `start(seq)`, `push(pcm)`,
 `end`, `cancel`, `close`, `partial` events) allows another provider to be added.
-`STT_ENGINE=local` is deliberately not implemented pending the user's decision.
+`STT_ENGINE=local` selects a resident local backend and requires no OpenAI key.
+It buffers the utterance and recognizes it at `mic.end`; neither local adapter
+currently provides incremental transcripts.
 Embedding applications may inject their own factory via `createBridgeServer`'s
 `stt.createEngine` option. The bridge executable always wires STT; a server
 constructed without that option remains a transport-only gateway.
@@ -105,7 +110,7 @@ retained for fallback (480,000 bytes); another of the same capacity is used only
 while Realtime setup is pending. Conversion and upload create bounded temporary
 copies. There is no unbounded queue of recordings or individual audio frames.
 
-Audio is **never saved to disk** by the bridge; there is no audio debug-save flag.
+Audio is **never saved to disk** by the bridge or its MLX worker; there is no audio debug-save flag.
 Committed synthetic test fixtures are the only intentional stored speech here.
 OpenAI engines send audio to OpenAI, so in-memory local handling does not imply
 local recognition. Default logs contain sequence, language, duration, latency,
@@ -202,6 +207,7 @@ The reviewer measured this 1.83-second fixture before the readiness follow-up:
 |---|---:|---:|
 | `openai-realtime` | 1,798 ms | Pending reviewer rerun with a real key |
 | `openai-batch` | 851 ms | Pending reviewer rerun with a real key |
+| `local/whisper-cpp` (tiny, CPU) | Not previously measured | 346 / 338 / 338 ms (median 338 ms) |
 
 Neither baseline met 600 ms. A slow streaming result alone does not identify a
 service-side cause. Inspection found that preconnection existed but setup was
@@ -216,3 +222,130 @@ and the 1.83 seconds of speech are excluded from both end-to-text measurements.
 There is no OpenAI key in this implementation session, so no after result or
 claim of reaching 600 ms is fabricated. Rerun the key-gated command above to fill
 in the after measurements; compare all three warm turns and report model choice.
+
+## Local installation and resident models
+
+For Japanese, start with a **large-v3-turbo or kotoba-whisper class multilingual
+model**, then tune accuracy/latency with your own synthetic phrases. The MLX
+default, [`mlx-community/whisper-turbo`](https://huggingface.co/mlx-community/whisper-turbo),
+is a converted large-v3-turbo model.
+`STT_MODEL` accepts an MLX-compatible Hugging Face model id or a downloaded local
+model directory; an original PyTorch-only kotoba model is not interchangeable
+with an MLX conversion. For whisper.cpp, choose a compatible GGML model using
+**the server's `--model` argument**. Changing the bridge's `STT_MODEL` alone does
+not reload a whisper-server model. There is deliberately no per-turn `/load`.
+
+The [MLX implementation](https://github.com/ml-explore/mlx-examples/tree/main/whisper)
+supports array input and caches the selected model. The bundled worker loads it
+once on device connection and exchanges PCM/result JSON over stdin/stdout. One
+worker is retained per connected device and terminates on disconnect/shutdown.
+No WAV files or FFmpeg process are needed for MLX. Download weights before use so
+that loading/download time is excluded from speech latency. GPU kernel setup may
+still affect the first inference; measure it separately from subsequent turns.
+
+macOS Apple Silicon (Python dependencies are separate from npm):
+
+```sh
+brew install uv
+# Set these directories OUTSIDE this repository; neither contains audio recordings.
+export STT_RUNTIME='<external-runtime-dir>'
+export HF_HOME='<external-model-cache>'
+uv venv --python 3.12 "$STT_RUNTIME"
+uv pip install --python "$STT_RUNTIME/bin/python" 'mlx-whisper==0.4.3'
+export STT_LOCAL_PYTHON="$STT_RUNTIME/bin/python"
+# Optional: download/load before connecting a device (uses the selected cache).
+"$STT_LOCAL_PYTHON" -c 'import mlx.core as mx; from mlx_whisper.transcribe import ModelHolder; ModelHolder.get_model("mlx-community/whisper-turbo", mx.float16)'
+export STT_ENGINE=local
+export STT_LOCAL_BACKEND=mlx-whisper
+export STT_MODEL=mlx-community/whisper-turbo
+export DEVICE_PSK=keychain://DEVICE_PSK
+akc run -- npm run start --workspace bridge
+```
+
+MLX needs a usable Metal GPU. An x86 Mac, Linux, or a headless/sandboxed Apple
+Silicon session without GPU access should use whisper.cpp instead. On macOS,
+install `brew install whisper-cpp` (which includes `whisper-server`). On Linux,
+build outside the bridge checkout:
+
+```sh
+# Install your distribution's C++ compiler, CMake, Git, and curl first.
+git clone https://github.com/ggml-org/whisper.cpp.git '<external-whisper-source>'
+cd '<external-whisper-source>'
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_SERVER=ON
+cmake --build build --config Release -j
+# Multilingual large-v3-turbo; do not choose an English-only .en model for Japanese.
+mkdir -p '<external-model-cache>'
+bash models/download-ggml-model.sh large-v3-turbo '<external-model-cache>'
+./build/bin/whisper-server --host localhost --port 8080 \
+  --model '<external-model-cache>/ggml-large-v3-turbo.bin' --language ja
+```
+
+On macOS, use `whisper-server` in the last command. Add `--no-gpu --threads 4`
+for a CPU-only setup. Keep this server running between utterances, then start
+the bridge from the repository root in a second terminal:
+
+```sh
+export DEVICE_PSK=keychain://DEVICE_PSK
+STT_ENGINE=local STT_LOCAL_BACKEND=whisper-cpp \
+  STT_LOCAL_URL=http://localhost:8080/inference \
+  akc run -- npm run start --workspace bridge
+```
+
+For Linux without AI KeyChain, inject `DEVICE_PSK` from your secret manager.
+`OPENAI_API_KEY` is not required or accessed by the local factory. The server
+loads its model once; `/health` must report ready before `stt.ready` is emitted.
+The [whisper-server documentation](https://github.com/ggml-org/whisper.cpp/tree/master/examples/server)
+describes its WAV multipart endpoint. The bridge sends WAV bytes in memory;
+leave the server's `--convert` flag off to avoid temporary conversion files.
+The external server can have its own logs; control those separately when handling
+private audio. Bind locally when running on the same host.
+
+Both backends retain the same 15-second PCM limit and use a 10-second inference
+budget inside the session's 12-second deadline. Model loading has a separate
+120-second MLX preparation deadline (HTTP health: 5 seconds). Wait for
+`stt.ready` before the first recording to exclude model load. Cancellation during
+MLX loading stops waiting without queuing audio. During inference it discards the
+reply and preserves the model; until that inference finishes, another turn gets
+a busy error instead of accumulating a queue. Device disconnection kills the
+worker. Neither backend falls back to a paid cloud service.
+
+### Local measurement on Apple Silicon
+
+Measured **2026-10-02**, **Apple M4 Max, 36 GB**, macOS **26.2**, whisper.cpp
+**1.8.5**, multilingual **tiny** GGML model (about 78 MB), **CPU only, 4 threads**.
+The model was downloaded into the task's external `cache/models` directory; no
+model files were committed. Metal was unavailable in this sandbox. Installing
+mlx-whisper succeeded, but importing it failed with `No Metal device available`;
+MLX latency is therefore **not measured**, and its adapter is verified with a
+persistent fake pipe worker. The small CPU model is a feasibility measurement,
+not evidence for the recommended larger Japanese models.
+
+The actual local bridge used `STT_ENGINE=local`, no `OPENAI_API_KEY`, and a
+resident whisper-server. It waited for model readiness, replayed the 1.8297-second
+synthetic fixture at 20-ms pacing, and emitted one utterance on each `mic.end`.
+All measurements include WAV packaging, HTTP transport, inference, and final
+bridge event delivery; preparation and speech duration are excluded.
+
+| Turn (same resident model) | End → text | Keyword `スタックちゃん` | Character error rate |
+|---|---:|---|---:|
+| First inference | 346 ms | Present | 0% |
+| Second | 338 ms | Present | 0% |
+| Third | 338 ms | Present | 0% |
+
+Median **338 ms**; all three meet the 600-ms target on this single fixture.
+Character error rate uses edit distance after NFKC and removing punctuation and
+whitespace against `こんにちは、スタックちゃん`. This very small synthetic sample
+cannot establish general Japanese accuracy. Reproduce with your already-running
+server (no API key, no automatic model download in the test):
+
+```sh
+STT_LOCAL_TEST_URL=http://localhost:8080/inference \
+  npx vitest run bridge/test/stt-local-integration.test.ts
+```
+
+The opt-in test prints latency, keyword success, and character error rate in JSON
+and a table. CI always exercises the keyless local factory/bridge/CLI against a
+fake HTTP server; it skips the actual local measurement unless the URL is set.
+SanoTTS playback and a complete Dot conversation still require the separate TTS
+and firmware work plus real hardware verification; this issue delivers the STT
+utterance event for that consumer.

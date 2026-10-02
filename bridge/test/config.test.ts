@@ -12,6 +12,9 @@ describe("loadConfig", () => {
       sttEngine: "openai-realtime",
       sttModel: "gpt-live-transcribe",
       sttBatchModel: "gpt-transcribe",
+      sttLocalBackend: process.platform === "darwin" && process.arch === "arm64" ? "mlx-whisper" : "whisper-cpp",
+      sttLocalUrl: "http://localhost:8080/inference",
+      sttLocalPython: "python3",
       sttLanguage: "ja",
       logTranscripts: false,
       openaiApiKey: undefined,
@@ -34,8 +37,14 @@ describe("STT configuration", () => {
     expect(loadConfig({ DEVICE_PSK: "test-only-key", STT_ENGINE: "fake", STT_MODEL: "custom-model", STT_BATCH_MODEL: "batch-model", STT_LANGUAGE: "en", LOG_TRANSCRIPTS: "true" }))
       .toMatchObject({ sttEngine: "fake", sttModel: "custom-model", sttBatchModel: "batch-model", sttLanguage: "en", logTranscripts: true });
   });
+  it("supports keyless local mode and validates backend settings", () => {
+    expect(loadConfig({ DEVICE_PSK: "test-only-key", STT_ENGINE: "local", STT_LOCAL_BACKEND: "whisper-cpp" }))
+      .toMatchObject({ sttEngine: "local", sttModel: "mlx-community/whisper-turbo", openaiApiKey: undefined });
+    expect(() => loadConfig({ DEVICE_PSK: "test-only-key", STT_LOCAL_BACKEND: "invalid" })).toThrow("STT_LOCAL_BACKEND");
+    expect(() => loadConfig({ DEVICE_PSK: "test-only-key", STT_LOCAL_URL: "file:///model" })).toThrow("STT_LOCAL_URL");
+  });
   it("rejects unsupported engines and invalid flags without exposing values", () => {
-    expect(() => loadConfig({ DEVICE_PSK: "test-only-key", STT_ENGINE: "local", LOG_TRANSCRIPTS: "yes" })).toThrow("STT_ENGINE, LOG_TRANSCRIPTS");
+    expect(() => loadConfig({ DEVICE_PSK: "test-only-key", STT_ENGINE: "invalid", LOG_TRANSCRIPTS: "yes" })).toThrow("STT_ENGINE, LOG_TRANSCRIPTS");
     expect(() => loadConfig({ DEVICE_PSK: "test-only-key", STT_LANGUAGE: "invalid language" })).toThrow("STT_LANGUAGE");
   });
 });
