@@ -16,8 +16,36 @@ This repository is public. Everything in code, commits, issues, PR comments, and
 ## Evidence rules
 
 - Crop or mask screenshots so that account avatars, names, URLs with hostnames, and chat history are not visible.
-- Logs attached to issues must be passed through `scripts/redact.sh` (planned) or redacted by hand.
+- Logs attached to issues must be passed through `scripts/redact.sh` or redacted by hand.
 - Use synthetic utterances for E2E tests (e.g. "こんにちは、スタックちゃん" / "What time is it?").
+
+## Repository checks
+
+Run `bash scripts/check-pii.sh` to inspect tracked and non-ignored untracked files.
+The scanner uses `file --mime-encoding` and converts detected UTF-16 text to UTF-8
+with `iconv` before checking it. Invalid conversions fail. NUL-containing text
+classified as binary also fails unless its exact bytes have been reviewed.
+The scanner requires Bash, Git, awk, grep, file, iconv, and shasum (macOS/Linux).
+
+Binary files, including images and audio, require an explicit `.pii-allowlist` entry:
+`binary:<sha256>:<exact repository-relative path>`. Inspect the content and metadata
+for personal information first, then obtain the digest with
+`shasum -a 256 <relative-file>`. Both the path and bytes must match; replacing or
+renaming the asset requires another review. No binaries are automatically allowed
+by extension. The existing WAV fixture is synthesized speech, not a recording.
+These checks do not perform OCR or inspect image/audio/video content.
+
+Other allowlist entries are value EREs. Use anchored expressions for synthetic
+fixtures; a permitted value never exempts its whole line or file. Only actual
+pattern-definition lines in `scripts/pii-patterns.txt` are exempt. Comments there,
+the scanner, redactor, and tests are all inspected. Do not add whole-file exclusions.
+
+`bash scripts/check-pii.sh --diff <base>..HEAD` reads changed file snapshots from
+every commit, including merges, rather than relying on Git text patches. It checks
+the entire changed file, including unchanged lines, and catches UTF-16/binary
+content even if it was removed later. The current patterns and allowlist govern
+all snapshots. Diagnostics show locations and categories, with matched values
+redacted. Run `bash scripts/test/pii.test.sh` for the isolated regression suite.
 
 ## Secrets at runtime
 
