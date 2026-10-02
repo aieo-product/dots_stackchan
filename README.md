@@ -30,7 +30,7 @@ See [docs/privacy.md](docs/privacy.md).
 
 ## Development
 
-Node.js 22 以上、PlatformIO、C++ コンパイラが必要です（WASM のかな変換は Node.js 24 以降を推奨）。
+Node.js 22 以上と PlatformIO が必要です。
 
 ```sh
 npm install
@@ -44,10 +44,6 @@ cd firmware && pio run
 `scripts/redact.sh` を通してください。`spikes/` は試作コードのため Node.js の lint・型検査対象外です。
 
 開発への参加方法は [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
-
-発話モジュールは `VOICE_MODE=device`（日本語の端末 sanoTTS）と `VOICE_MODE=bridge`
-（OpenAI / VOICEVOX / local-http の PCM）に対応します。設定・ローカル HTTP 契約・
-端末のストリーミング再生と統合待ちの範囲は [docs/tts.md](docs/tts.md) を参照してください。
 
 ## License
 
