@@ -52,8 +52,14 @@ void FaceController::setMouth(float ratio) {
   avatar_.setMouthOpenRatio(constrain(ratio, 0.0f, 1.0f));
 }
 
+void FaceController::setVoiceMode(const char* mode) {
+  voiceMode_ = mode;
+  if (!credits_) drawStatus();
+}
+
 void FaceController::drawStatus() {
-  avatar_.setSpeechText(online_ ? "online" : "offline");
+  const String status = String(online_ ? "online" : "offline") + " / " + voiceMode_;
+  avatar_.setSpeechText(status.c_str());
 }
 
 void FaceController::drawCredits() {

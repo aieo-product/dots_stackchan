@@ -14,6 +14,7 @@ class FaceController {
   void onState(std::function<void(const char*)> handler) { stateHandler_ = std::move(handler); }
   void setOnline(bool online);
   void setMouth(float ratio);
+  void setVoiceMode(const char* mode);
   void showCredits(bool show);
   void update();
 
@@ -21,6 +22,7 @@ class FaceController {
   m5avatar::Avatar avatar_;
   String state_ = "idle";
   bool online_ = false;
+  String voiceMode_ = "bridge";
   bool credits_ = false;
   bool expressionOverride_ = false;
   uint32_t statusAt_ = 0;

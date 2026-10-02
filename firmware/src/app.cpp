@@ -2,6 +2,7 @@
 #include <M5Unified.h>
 #include "audio/player.h"
 #include "audio/sanotts_voice.h"
+#include "audio/speech_dispatcher.h"
 #include "cli.h"
 #include "input.h"
 #include "net/wifi_link.h"
@@ -15,32 +16,27 @@ SerialCli cli;
 WifiLink wifi;
 WsLink ws;
 FaceController face;
-AudioPlayer audio;
+AudioPlayer player;
 SanoTtsVoice voice;
+SpeechDispatcher speech;
 ScsServo servo;
 DeviceInput input;
 
-void done(uint16_t seq, bool ok) { face.setState("idle"); ws.send(protocol::ttsDone(seq, ok)); }
-void cancel() { voice.cancel(); audio.cancel(); }
+void done(uint16_t seq, bool ok) { speech.finished(seq); ws.send(protocol::ttsDone(seq, ok)); }
+void cancel() { speech.cancel(); }
 void onText(const uint8_t* data, size_t length) {
   protocol::Command command;
   if (!protocol::decodeText(data, length, command)) return;
   using protocol::CommandType;
   switch (command.type) {
+    case CommandType::VoiceMode: face.setVoiceMode(command.text.c_str()); break;
     case CommandType::Face: face.setExpression(command.expression); break;
     case CommandType::Look: servo.look(command.pan, command.tilt); break;
-    case CommandType::TtsStart: cancel(); audio.startPcm(command); break;
-    case CommandType::TtsEnd: audio.endPcm(command.seq); break;
-    case CommandType::TtsCancel: cancel(); break;
-    case CommandType::SpeakKana:
-      cancel();
-      if (!voice.start(command.seq, command.text)) done(command.seq, false);
-      else {
-        face.setState("thinking");
-        if (!command.expression.isEmpty()) face.setExpression(command.expression);
-      }
-      break;
-    case CommandType::Chime: audio.chime(); break;
+    case CommandType::TtsStart:
+    case CommandType::TtsEnd:
+    case CommandType::TtsCancel:
+    case CommandType::SpeakKana: speech.command(command); break;
+    case CommandType::Chime: player.chime(); break;
     case CommandType::Ping: ws.send(protocol::pong(command.timestamp)); break;
     default: break;
   }
@@ -51,15 +47,17 @@ void begin() {
   cli.begin(config);
   face.begin();
   face.onState([](const char* state) { ws.send(protocol::state(state)); });
-  audio.begin(face, done);
-  voice.begin(audio, [](uint16_t seq) { done(seq, false); });
+  player.begin(face, done);
+  voice.begin(player, [](uint16_t seq) { done(seq, false); });
+  speech.begin(player, voice, face, done);
+  face.setVoiceMode(voice.available() ? "device" : "bridge");
   servo.begin(config.get());
   wifi.begin(config.get());
   if (!config.get().ntp.isEmpty()) configTime(0, 0, config.get().ntp.c_str());
   ws.begin(config.get(), onText,
       [](const uint8_t* data, size_t length) {
         protocol::BinaryFrame frame;
-        if (protocol::decodeBinary(data, length, frame)) audio.appendPcm(frame);
+        if (protocol::decodeBinary(data, length, frame)) speech.append(frame);
       },
       [](bool online) {
         face.setOnline(online);
@@ -78,7 +76,8 @@ void update() {
   wifi.update();
   ws.update(wifi.connected());
   voice.update();
-  audio.update();
+  player.update();
+  speech.update();
   face.update();
   input.update();
 }

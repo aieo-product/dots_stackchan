@@ -72,11 +72,12 @@ NVS は通常の Preferences 保存で、この実装は NVS 暗号化を設定�
 明示ポートも指定できます。IPv6 リテラルは未対応なので DNS 名を使ってください。
 Wi-Fi は保存したプロファイルを巡回し、WebSocket は 5 秒間隔で再接続します。
 再接続の認証ヘッダーは毎回更新します。ping/pong ハートビートも有効です。
-画面には `online` / `offline` を表示し、接続ごとに `hello` と `state` を送信します。
+画面には `online` / `offline` と `device` / `bridge` の音声モードを表示し、接続ごとに `hello` と `state` を送信します。
 
 | Bridge → device | Fields |
 |---|---|
 | `welcome` | `session`, `server_time` |
+| `voice.mode` | `mode`: device / bridge（接続後のモード表示通知） |
 | `face` | `expression`: neutral / happy / sad / doubt / sleepy / angry |
 | `look` | `pan`, `tilt`（度。±90 / ±30 に丸める） |
 | `speak.kana` | `seq`（0〜65535）, `kana`, optional `expression` |
@@ -88,11 +89,15 @@ Wi-Fi は保存したプロファイルを巡回し、WebSocket は 5 秒間隔�
 
 バイナリは `[kind u8][seq u16 LE][PCM]`、全体が 4096 バイト以下。
 TTS の kind は `0x02`、PCM は little endian signed 16 bit mono です。
-PCM は PSRAM に最大 4 MiB まで受信し、対応する `tts.end` で再生を始めます。
-シーケンスが異なるフレームは破棄します。新しい発話は前の発話を中止します。
+PCM は PSRAM の2秒分のリングに受信し、約150 ms蓄積したら `tts.end` を待たず再生します。
+3個の1024サンプルの再生バッファを使い、アンダーラン時は無音にして再蓄積後に再開します。
+`tts.end` 後は短い残りも再生し、リングと再生キューが空になってから完了を通知します。
+口パクは再生中のチャンクの振幅から出します。
+`speak.kana` とPCMは到着順に直列化し、前の発話を中止しません。
+待機は最大4発話、待機PCMは各2秒分まで。上限超過は失敗として通知します。
+不明なシーケンスのフレームは破棄します。`tts.cancel` は現在と待機発話をまとめて中止します。
 完了・失敗・キャンセルは `tts.done {seq,ok}` で通知します。
-合成タスクがキャンセル後の片付け中の場合、新しい `speak.kana` は `ok:false` になり、
-ブリッジ側で再試行できます。未知・不正な JSON は破棄します。
+合成タスクがキャンセル後の片付け中の場合、新しい発話は安全に解放されるまで待機します。未知・不正な JSON は破棄します。
 
 ボタン A/B/C の押下は `event {kind:"button",where:"A"}` など、画面タッチは
 `event {kind:"touch",where:"x,y"}` を送ります。CoreS3 で利用できる入力だけが発生します。
@@ -138,7 +143,8 @@ DOTS_SANOTTS=0 pio run -d firmware
 `2d2b8543c06b6a749f19c9918de68244409e2bb6ad1d921a90b5c358f96d4d79` を検証します。
 ビルド時も SHA-256 と形式を検証します。重みがない場合や `DOTS_SANOTTS=0` 指定では
 sanoTTS を除外し、`hello.caps.sanotts=false`、`speak.kana` には `tts.done {ok:false}`。
-ブリッジ側は OpenAI TTS などの PCM 経路に切り替えてください。
+ブリッジの自動選択では OpenAI TTS の PCM 経路を使います。
+`VOICE_MODE` / `TTS_VOICE` / `TTS_INSTRUCTIONS` と接続APIは [音声モード](voice.md) を参照してください。
 
 取得不能の場合は upstream の `a478680073aacfec4fc16c31e370d63ef09c8d14` を別の
 チェックアウトで用意し、v0.2.0 の `saanotts-jp-v3-stage4.pt` から生成します。
@@ -169,7 +175,10 @@ v0.2.0 リリースの int8 blob v1 はこのコアでは使えません。
 1. シリアル設定→再起動→Wi-Fi 接続・認証・online 表示。Wi-Fi とブリッジを止め、復帰後の再接続。
 2. 有効な Funnel 証明書で接続し、不正な証明書・ホスト名・時刻では接続が拒否されること。
 3. 全 6 表情と `look` の中央・境界・範囲外。中立姿勢と機械的な安全域も確認。
-4. PCM の音、口パク、`tts.done`、再生中の `tts.cancel`、chime、タッチ・ボタンの `event`。
+4. PCMが `tts.end` 前に鳴ること、口パク、`tts.done`、再生中の `tts.cancel`。
+   ストリームを一時停止してアンダーランと再開を確認し、2秒以上の長い発話も再生する。
+   両モードの混在と画面表示、chime、タッチ・ボタンの `event`。
+   bridgeモードで返信到着→最初のPCM送信が **0.8秒以内**かログを計測する。
 5. `speak.kana` の音・合成中の表情と口パク。受信から発声まで **0.6 秒以内**か計測。
    発話長・arena 配置・TLS のメモリ使用量に依存するため、このビルドだけでは時間を保証できません。
 6. 長押しで全クレジットが読めること。背景に部屋や人を含めず短い動画を撮り、共有ログを伏せ字にする。

@@ -8,6 +8,7 @@ namespace dots::protocol {
 enum class CommandType {
   Unknown,
   Welcome,
+  VoiceMode,
   Face,
   Look,
   SpeakKana,

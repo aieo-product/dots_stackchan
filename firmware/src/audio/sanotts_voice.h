@@ -21,6 +21,13 @@ class SanoTtsVoice {
   void cancel();
   void update();
   bool available() const;
+  bool busy() const {
+#if DOTS_SANOTTS
+    return active_ || !exited_ || pcm_;
+#else
+    return false;
+#endif
+  }
 
  private:
   AudioPlayer* player_ = nullptr;

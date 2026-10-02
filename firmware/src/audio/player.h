@@ -6,6 +6,7 @@
 
 #include "face/face.h"
 #include "protocol.h"
+#include "audio/pcm_ring.h"
 
 namespace dots {
 
@@ -24,9 +25,20 @@ class AudioPlayer {
   void chime();
   void update();
   bool playing() const { return playing_; }
+  bool busy() const { return receiving_ || playing_; }
 
  private:
-  static constexpr size_t kMaxPcmBytes = 4 * 1024 * 1024;
+  static constexpr size_t kChunkSamples = 1024;
+  audio::PcmRing ring_;
+  bool stream_ = false;
+  bool ended_ = false;
+  bool primed_ = false;
+  bool receivedSamples_ = false;
+  size_t nextChunk_ = 0;
+  size_t queuedChunks_ = 0;
+  size_t queuedIds_[2] = {};
+  float chunkLevels_[3] = {};
+  int16_t* chunkBuffers_ = nullptr;
   FaceController* face_ = nullptr;
   DoneHandler doneHandler_;
   int16_t* samples_ = nullptr;
@@ -48,6 +60,8 @@ class AudioPlayer {
 
   bool playCurrent();
   void releaseBuffer();
+  void updateStream();
+  void finish(bool ok);
 };
 
 }  // namespace dots

@@ -20,6 +20,9 @@ void AudioPlayer::releaseBuffer() {
   ownsBuffer_ = false;
   release_ = nullptr;
   available_ = nullptr;
+  ring_.reset();
+  chunkBuffers_ = nullptr;
+  stream_ = false;
 }
 
 void AudioPlayer::cancel(bool notify) {
@@ -39,6 +42,9 @@ void AudioPlayer::cancel(bool notify) {
     sampleCount_ = capacityBytes_ = 0;
     ownsBuffer_ = false;
     submitted_ = false;
+    stream_ = false;
+    ring_.reset();
+    chunkBuffers_ = nullptr;
   } else releaseBuffer();
   if (active && notify && doneHandler_) doneHandler_(cancelledSeq, false);
 }
@@ -52,38 +58,37 @@ bool AudioPlayer::startPcm(const protocol::Command& command) {
   }
   seq_ = command.seq;
   sampleRate_ = command.sampleRate;
+  const size_t ringSamples = sampleRate_ * 2;
+  capacityBytes_ = (ringSamples + 3 * kChunkSamples) * sizeof(int16_t);
+  samples_ = static_cast<int16_t*>(heap_caps_malloc(
+      capacityBytes_, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!samples_) {
+    capacityBytes_ = 0;
+    if (doneHandler_) doneHandler_(seq_, false);
+    return false;
+  }
+  ring_.reset(samples_, ringSamples);
+  chunkBuffers_ = samples_ + ringSamples;
+  stream_ = true;
+  ended_ = primed_ = receivedSamples_ = false;
+  nextChunk_ = queuedChunks_ = 0;
+  submitted_ = false;
   receiving_ = true;
   ownsBuffer_ = true;
+  if (face_) face_->setState("thinking");
   return true;
 }
 
 bool AudioPlayer::appendPcm(const protocol::BinaryFrame& frame) {
-  if (!receiving_ || frame.kind != 0x02 || frame.seq != seq_ ||
-      frame.length == 0 || frame.length % sizeof(int16_t) != 0) {
-    return false;
-  }
-  const size_t usedBytes = sampleCount_ * sizeof(int16_t);
-  const size_t needed = usedBytes + frame.length;
-  if (needed > kMaxPcmBytes) {
+  if (!receiving_ || !stream_ || frame.kind != 0x02 || frame.seq != seq_ ||
+      frame.length == 0 || frame.length + 3 > protocol::kMaxBinaryFrameBytes ||
+      frame.length % sizeof(int16_t) != 0) return false;
+  if (!ring_.push(frame.payload, frame.length)) {
+    // No overwritten or silently dropped audio on overflow.
     cancel(true);
     return false;
   }
-  if (needed > capacityBytes_) {
-    size_t next = capacityBytes_ ? capacityBytes_ * 2 : 32768;
-    while (next < needed) next *= 2;
-    next = min(next, kMaxPcmBytes);
-    void* resized = heap_caps_realloc(samples_, next,
-                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!resized) {
-      cancel(true);
-      return false;
-    }
-    samples_ = static_cast<int16_t*>(resized);
-    capacityBytes_ = next;
-  }
-  memcpy(reinterpret_cast<uint8_t*>(samples_) + usedBytes, frame.payload,
-         frame.length);
-  sampleCount_ += frame.length / sizeof(int16_t);
+  receivedSamples_ = true;
   return true;
 }
 
@@ -98,12 +103,65 @@ bool AudioPlayer::playCurrent() {
 }
 
 bool AudioPlayer::endPcm(uint16_t seq) {
-  if (!receiving_ || seq != seq_) return false;
-  if (playCurrent()) return true;
+  if (!receiving_ || !stream_ || seq != seq_) return false;
   receiving_ = false;
+  ended_ = true;
+  // Short utterances must play even below the initial jitter threshold.
+  playing_ = true;
+  return true;
+}
+
+void AudioPlayer::finish(bool ok) {
+  const uint16_t finishedSeq = seq_;
+  receiving_ = playing_ = submitted_ = false;
+  if (face_) {
+    face_->setMouth(0);
+    face_->setState("idle");
+  }
   releaseBuffer();
-  if (doneHandler_) doneHandler_(seq, false);
-  return false;
+  if (doneHandler_) doneHandler_(finishedSeq, ok);
+}
+
+void AudioPlayer::updateStream() {
+  const size_t slots = M5.Speaker.isPlaying(0);
+  if (queuedChunks_ && !slots && !ended_) primed_ = false;
+  // The oldest queued request is currently playing. Three buffers in rotation
+  // protect the recently released buffer too (the speaker task is asynchronous).
+  while (queuedChunks_ > slots) {
+    queuedIds_[0] = queuedIds_[1];
+    --queuedChunks_;
+  }
+  if (ended_ && !ring_.size() && slots == 0) {
+    finish(receivedSamples_);
+    return;
+  }
+  if (slots == 0 && !ring_.size()) {
+    primed_ = false;  // underrun: silence, then re-prime and resume
+    if (face_) face_->setMouth(0);
+    return;
+  }
+  const size_t threshold = sampleRate_ * 150 / 1000;
+  if (!primed_ && (ring_.size() >= threshold || ended_)) {
+    primed_ = true;
+    playing_ = true;
+    if (face_) face_->setState("speaking");
+  }
+  if (!primed_) return;
+  if (ring_.size() && slots < 2) {
+    int16_t* chunk = chunkBuffers_ + nextChunk_ * kChunkSamples;
+    const size_t count = ring_.pop(chunk, kChunkSamples);
+    int peak = 0;
+    for (size_t i = 0; i < count; ++i) peak = max(peak, abs(static_cast<int>(chunk[i])));
+    chunkLevels_[nextChunk_] = constrain(peak / 12000.0f, 0.0f, 1.0f);
+    if (!M5.Speaker.playRaw(chunk, count, sampleRate_, false, 1, 0, false)) {
+      cancel(true);
+      return;
+    }
+    submitted_ = true;
+    queuedIds_[queuedChunks_++] = nextChunk_;
+    nextChunk_ = (nextChunk_ + 1) % 3;
+  }
+  if (face_) face_->setMouth(queuedChunks_ ? chunkLevels_[queuedIds_[0]] : 0);
 }
 
 bool AudioPlayer::playGenerated(int16_t* samples, size_t sampleCount,
@@ -143,8 +201,9 @@ void AudioPlayer::update() {
     chiming_ = false;
     if (!playing_ && face_) face_->setState("idle");
   }
-  if (!playing_) return;
   if (!retired_.empty()) return;
+  if (stream_) { updateStream(); return; }
+  if (!playing_) return;
   const size_t available = available_ ? min(sampleCount_, available_()) : sampleCount_;
   // Queue only synthesized samples: a slow pull can never race the speaker.
   if (submittedSamples_ < available && M5.Speaker.isPlaying(0) < 2) {

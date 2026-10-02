@@ -19,6 +19,7 @@ bool decodeText(const uint8_t* data, size_t length, Command& command) {
   const char* type = doc["type"] | "";
   command = Command{};
   if (!strcmp(type, "welcome")) command.type = CommandType::Welcome;
+  else if (!strcmp(type, "voice.mode")) command.type = CommandType::VoiceMode;
   else if (!strcmp(type, "face")) command.type = CommandType::Face;
   else if (!strcmp(type, "look")) command.type = CommandType::Look;
   else if (!strcmp(type, "speak.kana")) command.type = CommandType::SpeakKana;
@@ -30,6 +31,8 @@ bool decodeText(const uint8_t* data, size_t length, Command& command) {
   else if (!strcmp(type, "pong")) command.type = CommandType::Pong;
   else return false;
 
+  if (command.type == CommandType::VoiceMode &&
+      strcmp(doc["mode"] | "", "device") && strcmp(doc["mode"] | "", "bridge")) return false;
   const bool hasSeq = command.type == CommandType::SpeakKana ||
                       command.type == CommandType::TtsStart || command.type == CommandType::TtsEnd;
   if (hasSeq && !doc["seq"].is<uint16_t>()) return false;
@@ -65,6 +68,7 @@ bool decodeText(const uint8_t* data, size_t length, Command& command) {
   command.tilt = doc["tilt"] | 0.0f;
   command.timestamp = doc["t"] | 0ULL;
   command.text = doc["kana"] | "";
+  if (command.type == CommandType::VoiceMode) command.text = doc["mode"] | "";
   command.expression = doc["expression"] | "";
   if (command.type == CommandType::Chime) command.text = doc["kind"] | "";
   return true;

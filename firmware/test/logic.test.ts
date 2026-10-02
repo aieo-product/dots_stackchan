@@ -19,6 +19,12 @@ const run = (...args: (string | number)[]): string =>
   execFileSync(executable, args.map(String), { encoding: "utf8" });
 
 describe("firmware native logic", () => {
+  it("preserves PCM16 sample order and signed values across ring wrap", () => {
+    expect(run("ring-wrap")).toBe("ok");
+  });
+  it("rejects overflow and partial samples without changing buffered audio", () => {
+    expect(run("ring-invalid")).toBe("ok");
+  });
   it("decodes the protocol v1 little endian sequence", () => {
     expect(run("binary", 2, 0x34, 0x12, 0, 1)).toBe("2,4660,2");
     expect(run("binary", 1, 255, 255)).toBe("1,65535,0");
