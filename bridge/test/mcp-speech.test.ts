@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DeviceLink, Speaker } from "../src/mcp/dependencies.js";
 import { createMcpToolRegistrar } from "../src/mcp/tools.js";
-import { createNotificationCenter } from "../src/notify/center.js";
+import { createNotificationCenter, type NotificationCenter } from "../src/notify/center.js";
+import { notificationConfigSchema } from "../src/notify/config.js";
+
+const centers: NotificationCenter[] = [];
 
 function deferred() {
   let resolve: () => void = () => {};
@@ -33,7 +36,14 @@ function setup(done: Promise<void>) {
   };
   const server = new McpServer({ name: "speech-test", version: "0.0.0" });
   const registration = vi.spyOn(server, "registerTool");
+  const notificationCenter = createNotificationCenter({
+    device, speaker,
+    config: notificationConfigSchema.parse({ QUIET_HOURS: "" }),
+    log: () => {},
+  });
+  centers.push(notificationCenter);
   createMcpToolRegistrar({
+    notificationCenter,
     device,
     speaker,
     listener: { nextUtterance: async () => null },
@@ -56,6 +66,7 @@ function textOf(result: CallToolResult): string {
 }
 
 afterEach(() => {
+  for (const center of centers.splice(0)) center.dispose();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -120,36 +131,12 @@ describe("speech playback lifecycle", () => {
     expect(textOf(await call("get_status"))).toContain('"speaking":false');
   });
 
-  it("reports synchronous enqueue failures without leaving speech active", async () => {
+  it("reports say enqueue failures while accepting notifications for later delivery", async () => {
     const { speaker, call } = setup(Promise.resolve());
     vi.mocked(speaker.say).mockImplementation(() => { throw new Error("Queue unavailable"); });
 
     expect((await call("say", { text: "Hello" })).isError).toBe(true);
-    expect((await call("notify", { message: "Reminder" })).isError).toBe(true);
+    expect((await call("notify", { message: "Reminder" })).isError).not.toBe(true);
     expect(textOf(await call("get_status"))).toContain('"speaking":false');
-  });
-});
-
-describe("NotificationCenter", () => {
-  it.each(["normal", "high"] as const)("chimes before enqueueing %s priority speech and returns synchronously", (priority) => {
-    const { device, speaker } = setup(new Promise(() => {}));
-    const center = createNotificationCenter({ device, speaker });
-
-    expect(center.notify({ message: "Reminder", priority, topicId: "reminder" })).toBeUndefined();
-    expect(device.send).toHaveBeenCalledWith({ type: "chime", kind: "notify" });
-    expect(speaker.say).toHaveBeenCalledWith("Reminder", { interrupt: priority === "high" });
-    expect(vi.mocked(device.send).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(speaker.say).mock.invocationCallOrder[0],
-    );
-  });
-
-  it("handles playback rejection after returning", async () => {
-    const { promise, reject } = deferred();
-    const { device, speaker } = setup(promise);
-    const center = createNotificationCenter({ device, speaker });
-
-    center.notify({ message: "Reminder", priority: "normal" });
-    reject(new Error("Playback failed"));
-    await promise.catch(() => {});
   });
 });
