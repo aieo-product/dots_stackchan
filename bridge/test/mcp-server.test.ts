@@ -15,6 +15,8 @@ import {
   type McpHttpServer,
 } from "../src/mcp/server.js";
 import type { McpToolDependencies } from "../src/mcp/tools.js";
+import { createNotificationCenter, type NotificationCenter } from "../src/notify/center.js";
+import { notificationConfigSchema } from "../src/notify/config.js";
 
 class FakeDevice implements DeviceLink {
   online = true;
@@ -83,8 +85,10 @@ interface TestConnection {
 
 const clients: Client[] = [];
 const servers: McpHttpServer[] = [];
+const centers: NotificationCenter[] = [];
 
 afterEach(async () => {
+  for (const center of centers.splice(0)) center.dispose();
   await Promise.all(clients.splice(0).map(async (client) => client.close()));
   await Promise.all(servers.splice(0).map(async (server) => server.close()));
 });
@@ -115,11 +119,21 @@ function createDependencies(overrides: Partial<McpToolDependencies> = {}): {
   const device = new FakeDevice();
   const speaker = new FakeSpeaker();
   const listener = new FakeListener();
+  const notificationCenter = createNotificationCenter({
+    device, speaker,
+    config: notificationConfigSchema.parse({ QUIET_HOURS: "" }),
+    log: () => {},
+  });
+  centers.push(notificationCenter);
   return {
     device,
     speaker,
     listener,
-    dependencies: { device, speaker, listener, ...overrides },
+    dependencies: {
+      device, speaker, listener,
+      notificationCenter,
+      ...overrides,
+    },
   };
 }
 
@@ -182,8 +196,8 @@ describe("MCP server", () => {
     });
     expect(notification.isError).not.toBe(true);
     expect(textOf(notification)).toBe("Notification queued. topic_id: reminder");
-    expect(device.messages).toEqual([{ type: "chime", kind: "notify" }]);
-    expect(speaker.calls).toHaveLength(3);
+    expect(device.messages).toEqual([{ type: "notice.pending", count: 1 }]);
+    expect(speaker.calls).toHaveLength(2);
   });
 
   it("also supports the legacy initialize flow", async () => {
@@ -222,11 +236,13 @@ describe("MCP server", () => {
         text: "Hello",
         options: { expression: "happy", interrupt: true },
       },
-      { text: "Package arrived", options: { interrupt: true } },
+      { text: "Package arrived", options: { interrupt: false } },
     ]);
     expect(device.messages).toEqual([
       { type: "face", expression: "doubt" },
       { type: "look", pan: 25, tilt: -10 },
+      { type: "notice.pending", count: 1 },
+      { type: "notice.pending", count: 0 },
       { type: "chime", kind: "notify" },
     ]);
   });
@@ -331,7 +347,8 @@ describe("MCP server", () => {
     expect(textOf(secondSay)).toContain("Rate limit exceeded");
     expect(firstNotify.isError).not.toBe(true);
     expect(secondNotify.isError).toBe(true);
-    expect(base.speaker.calls).toHaveLength(2);
+    expect(base.speaker.calls).toHaveLength(1);
+    expect(base.device.messages).toContainEqual({ type: "notice.pending", count: 1 });
   });
 
   it("allows 20 say calls per minute by default", async () => {

@@ -49,6 +49,7 @@ export function createMcpToolRegistrar(dependencies: McpToolDependencies): {
     createNotificationCenter({
       device: dependencies.device,
       speaker: dependencies.speaker,
+      now,
     });
   let deviceState: string | undefined;
   let activeSpeech = 0;
@@ -230,7 +231,7 @@ export function createMcpToolRegistrar(dependencies: McpToolDependencies): {
         "notify",
         {
           description:
-            "Send a notification chime, queue a message for Stack-chan to announce, and return immediately without waiting for playback. The result includes topic_id when provided.",
+            "Queue a notification for Stack-chan to announce after a chime, respecting quiet hours and deduplication, and return immediately. The result includes topic_id when provided.",
           inputSchema: z
             .object({
               message: z
@@ -242,7 +243,7 @@ export function createMcpToolRegistrar(dependencies: McpToolDependencies): {
               priority: z
                 .enum(["normal", "high"])
                 .optional()
-                .describe("High priority interrupts current speech."),
+                .describe("High priority plays after current speech; normal waits for a conversation pause."),
               topic_id: z
                 .string()
                 .trim()
@@ -265,7 +266,9 @@ export function createMcpToolRegistrar(dependencies: McpToolDependencies): {
           if (limited) return limited;
 
           try {
-            notificationCenter.notify({
+            notificationCenter.submit({
+              source: "mcp",
+              receivedAt: now(),
               message,
               priority: priority ?? "normal",
               ...(topic_id === undefined ? {} : { topicId: topic_id }),
