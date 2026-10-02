@@ -2,7 +2,11 @@
 
 MCP App は Dot とスタックちゃんをつなぐ既定の経路である。ChatGPT の接続アプリでスタックちゃんをオンにしている間だけ Dot がスタックちゃんに働きかける。オフにすれば、Dot からスタックちゃんをすぐ切り離せる。セキュリティ上の取り消しには OAuth の revoke も行う。
 
-この段階では実デバイス依存とブリッジの起動処理への配線が必要である。統合側は次の順に専用の MCP リスナーを作る。
+`npm run start --workspace bridge` がデバイス・音声・通知・Eventsを結線する。
+`MCP_PUBLIC_URL` 設定時は `MCP_PORT`（既定8791）をOAuth専用として起動し、
+ローカル開発用MCPは `MCP_LOCAL_PORT`（既定8792）で別に起動する。
+どちらもループバックのみ。FunnelはOAuth専用の `MCP_PORT` へ転送する。
+埋め込み用APIでは次の順に専用の MCP リスナーを作れる。
 
 ```ts
 import { createMcpServer } from "./mcp/server.js";
@@ -19,7 +23,7 @@ await server.listen(mcpPort); // loopback; dedicated to MCP/OAuth
 1. Node.js 22 以上で `npm install`。prepare が CLI 用 JavaScript をビルドする。更新後は `npm run build` も実行する。
 2. Keychain に `akc set MCP_PASSCODE` でパスコードを登録する。既存デバイスの PSK は別のキーとして維持する。
 3. 実際の DNS 名はローカルで確認し、環境変数だけで設定する。公開 URL は次の形式で、既定ポートの `:8443` を含める。
-4. ブリッジ統合の起動コマンドを `akc run -- <bridge-command>` で実行する。
+4. [README](../README.md#run-the-bridge)の必須設定を行い、`akc run -- npm run start --workspace bridge` で実行する。
 5. 専用リスナーが起動したら `bash scripts/funnel.sh up`。443 が空いていれば `--port 443` に変更し、URL のポート表記も合わせる。
 6. ChatGPT に MCP URL を登録し、OAuth を選択する。同意画面の返り先・権限を確認してパスコードを入力する。DCR は公開クライアント (`token_endpoint_auth_method=none`) に対応する。
 7. `get_status`、短い `say`、表情、首の小さい角度の順に実機確認する。停止は `bash scripts/funnel.sh down`、公開状況の確認は `bash scripts/funnel.sh status`。

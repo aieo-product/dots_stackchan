@@ -8,7 +8,7 @@ packet counter. WebSocket preserves frame order. The bridge emits one final
 
 ```ts
 hub.on("utterance", ({ deviceId, payload }) => {
-  // payload: { seq, text, lang, duration_ms, latency_ms }
+  // payload: { seq, text, lang, duration_ms, latency_ms, started_at_ms }
   // Deliver payload.text to the conversation layer here.
 });
 hub.on("stt.partial", ({ deviceId, payload }) => {
@@ -119,10 +119,13 @@ fixed messages without response bodies or credentials. `LOG_TRANSCRIPTS=true` is
 an explicit opt-in; do not publish those logs. Events intentionally contain text
 for the application consumer.
 
-The bridge rejects starts when device state reports `speaking` or `notifying`.
-Firmware push-to-talk, actual microphone recording, and suppression during
-TTS/sanoTTS/chimes are a separate follow-up after #5. This state guard alone
-cannot establish hardware-level playback suppression.
+The integrated application treats explicit `mic.start` as push-to-talk: it cancels
+queued playback before capture, even if the previous firmware state was speaking.
+Starting bridge speech cancels active STT capture to suppress playback recognition.
+A standalone gateway retains the speaking/notifying state guard. `started_at_ms`
+is the accepted turn start time, used for notification reply context independently
+of transcription latency. Hardware-level microphone/playback exclusion still
+requires an actual CoreS3 check.
 
 ## WAV replay and tests
 

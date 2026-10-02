@@ -184,7 +184,7 @@ DOTS_SANOTTS=0 pio run -d firmware
 ビルド時も SHA-256 と形式を検証します。重みがない場合や `DOTS_SANOTTS=0` 指定では
 sanoTTS を除外し、`hello.caps.sanotts=false`、`speak.kana` には `tts.done {ok:false}`。
 ブリッジの自動選択では OpenAI TTS の PCM 経路を使います。
-`VOICE_MODE` / `TTS_VOICE` / `TTS_INSTRUCTIONS` と接続APIは [音声モード](voice.md) を参照してください。
+`VOICE_MODE` / `TTS_VOICE` / `TTS_INSTRUCTIONS` と接続APIは [音声モード](tts.md) を参照してください。
 
 取得不能の場合は upstream の `a478680073aacfec4fc16c31e370d63ef09c8d14` を別の
 チェックアウトで用意し、v0.2.0 の `saanotts-jp-v3-stage4.pt` から生成します。

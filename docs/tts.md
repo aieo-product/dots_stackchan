@@ -4,7 +4,7 @@
 
 未設定では device mode を選ぶ。日本語かつ `caps.sanotts=true` なら、漢字かな交じり文を「ひらがな＋アクセント記号」に変えて `speak.kana {seq, kana, expression?}` を送る。端末は合成しながら再生する。日本語以外または `caps.sanotts=false` は `TTS_ENGINE` の PCM にフォールバックする。かなを含むことを日本語の基準とし、漢字だけの短文は PCM に送る。漢字・数字・英字・未知の製品名は 45 文の評価に含めている。発音は実機で確認する。
 
-bridge mode は日本語を含む **すべての文**を `TTS_ENGINE` で合成する。既定エンジンは OpenAI。VOICEVOX と local-http も明示選択できる。端末には現在の mode とエンジンを表示する。接続・設定変更時に `router.announceMode(device)` を呼ぶと、発話前にも表示を更新できる。
+bridge mode は日本語を含む **すべての文**を `TTS_ENGINE` で合成する。既定エンジンは OpenAI。VOICEVOX と local-http も明示選択できる。端末には既存の `voice.mode` で現在の mode を表示する。エンジン名はブリッジ内のメタデータとして扱い、v1の音声フレームへ追加しない。接続・設定変更時に `router.announceMode(device)` を呼ぶと、発話前にも表示を更新できる。
 
 ## 設定
 
@@ -74,7 +74,7 @@ uv run --no-project --with piper-plus-g2p==0.2.0 \
 
 `speaking` イベントは合成前から転送・再生終了まで true、キューが空になると false。#6 はこのイベントでマイクを停止・再開する。`tts.sent` は送信終了時の `queuedToSendMs` と `conversionToSendMs` を記録する。PCM は各文の最初のフレームで `tts.first_audio` を記録する: `firstAudioMs` はその文のリクエスト開始から送信まで（先行取得後の再生待ちを含む）、`replyToFirstAudioMs` は enqueue から送信まで。最初の文の目標は後者が **800ms 以下**。`sentence`、`targetMs`、`targetMet` も残す。後続文の targetMet はその文のリクエスト開始を基準にする。発話内容・キー・接続先・provider error はログに出さない。
 
-#4 のファイルは本 issue で変更していない。統合時に、選択されたデバイスの接続を `DeviceLink` へ適合させる。必要なメソッドは `send` / `sendBinary` / `on` / `off`、プロパティは `online` / `caps`。受信の `tts.done` は `message` イベントへ、接続切断は `offline` へ流す。`sendBinary` は v1 の `[kind u8][seq u16 LE]` ヘッダーを付ける責務を持つ。キューはヘッダーを二重に付けない。
+`bridge/src/app/device.ts` が、選択されたデバイスの接続を共有の `DeviceLink` へ適合させる。必要なメソッドは `send` / `sendBinary` / `on` / `off`、プロパティは `online` / `caps`。受信の `tts.done` は `message` イベントへ、接続切断は `offline` へ流す。`sendBinary` は v1 の `[kind u8][seq u16 LE]` ヘッダーを付ける責務を持つ。キューはヘッダーを二重に付けない。
 
 ```ts
 import { createKanaConverter, createTtsRouter, SpeechQueue,
@@ -133,11 +133,17 @@ HTTP body を逐次読み、最初の出力ができた時点で `tts.start {seq
 
 ### 端末の PCM ストリーミング
 
-`firmware/include/pcm-player.h` は固定 500ms ring と、M5Unified が参照する 3 個の 20ms 再生バッファを使う。150ms 蓄積すると `tts.end` を待たず再生開始する。短い最終文は end 後に残りを再生する。underrun は一時停止・口を閉じ、150ms 再蓄積で再開する。口パクは再生キュー先頭の PCM RMS に対応する。done は最終バッファと 50ms の DMA drain 待ちが終わってから送る。overflow・不完全サンプル・入力停止 30 秒・speaker 失敗は `ok:false`。cancel は speaker task を終了して参照を解放し、再生バッファを安全に再利用する。
+統合したファームウェアは `firmware/src/audio/player.cpp` と
+`speech_dispatcher.cpp` が、認証済みWebSocketのprotocol v1音声を再生する。
+起動時の `hello.caps.sanotts` は重みの有無を反映し、重みがなければブリッジはPCMへ
+フォールバックする。`tts.done` を待って次の文を送信し、PTT開始・切断・割り込み時は
+現在と待機中の発話を中止する。バッファ、I2S切り替え、ビルドと実機確認の詳細は
+[firmware.md](firmware.md)を参照する。
 
-`tts-protocol.h` の `text()` / `binary()` と player の `tick()` は同じループから呼ぶ。#4/#5 の WSS 通信はこのブランチに存在しないため、現在の main は USB 開発用入力 `[length u16 LE][kind 0x01 + JSON または v1 kind 0x02 + seq + PCM]` から同じハンドラーを呼ぶ。出力は改行区切り JSON の `tts.done`。UART 経由の場合は 921600 baud（16kHz PCM の帯域を確保するため）。入力フレームは 4096 bytes 以下。起動時は `caps.sanotts=false`、`pcm_stream=true` を出す。sanoTTS のモデル・端末合成は #5 で Kana callback を接続するまで未実装であり、対応なしの `speak.kana` は失敗応答する。
-
-通常の検証は `npm run check`（C++ コンパイラも必要）、`cd firmware && pio run`。再生コアはホストの偽 speaker で開始閾値・再生中のメモリ保持・underrun・再開・drain・cancel・overflow・timeout を検証する。SDK + 偽 OpenAI HTTP の結合テストでは初回フレーム約 28ms、現在と先行取得中の HTTP 切断、文の順序を確認した。これは実 API の遅延保証ではない。
+通常の検証は `npm run check`（C++コンパイラも必要）、`cd firmware && pio run`。
+`bridge/test/e2e-integration.test.ts` は実アプリのMCP・認証済みWebSocket・偽local-http
+エンジンを結線し、かな、PCM、capability fallback、完了待機、PTTと終了を確認する。
+偽OpenAIのストリーミング結合テストも別に存在する。これらは実API・実機の遅延保証ではない。
 
 ## ライセンスと実機確認
 

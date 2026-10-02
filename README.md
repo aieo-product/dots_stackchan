@@ -3,7 +3,7 @@
 Give your OpenAI **Dot** a body: connect an always-on [OpenAI Dot](https://openai.com/) agent to a
 [Stack-chan](https://github.com/stack-chan/stack-chan) robot (M5Stack CoreS3 / K151).
 
-> Status: early design. See the [issues](https://github.com/aieo-product/dots_stackchan/issues) for the roadmap.
+> Status: bridge services are integrated; real-device acceptance is still required. See the [issues](https://github.com/aieo-product/dots_stackchan/issues) for the roadmap.
 
 ## Concept
 
@@ -21,6 +21,49 @@ Give your OpenAI **Dot** a body: connect an always-on [OpenAI Dot](https://opena
   `say`, `set_expression`, `look`, `get_status`; what Stack-chan hears is pushed to the Dot via MCP Events.
 - **Slack route (secondary)**: Stack-chan's utterances are posted to a Slack channel where your Dot lives,
   and the Dot's replies are spoken back.
+
+## Run the bridge
+
+Node.js 22 以上（既定のかな変換には24以上を推奨）。キーを Keychain に登録し、
+環境変数へ実行時だけ注入します。環境ファイルは自動で読みません。
+
+```sh
+npm install
+akc set DEVICE_PSK
+akc set OPENAI_API_KEY
+akc set EVENTS_SECRET_KEY
+export DEVICE_PSK=keychain://DEVICE_PSK
+export OPENAI_API_KEY=keychain://OPENAI_API_KEY
+export EVENTS_SECRET_KEY=keychain://EVENTS_SECRET_KEY
+akc run -- npm run start --workspace bridge
+```
+
+`EVENTS_SECRET_KEY` は32バイトのランダム鍵を標準base64で表した値です。
+Events を使わない場合は `EVENTS_ENABLED=false` でキーを省略できます。
+API を使わず通信だけ試すなら `STT_ENGINE=fake EVENTS_ENABLED=false` を指定します。
+fake は固定の合成テスト文を返し、実際の音声を認識しません。
+
+| 環境変数 | 既定 / 用途 | 詳細 |
+|---|---|---|
+| `DEVICE_PSK`, `BRIDGE_HOST`, `BRIDGE_PORT` | PSK必須、デバイスWSは全IPv4インターフェースの8790 | [protocol](docs/protocol.md), [firmware](docs/firmware.md) |
+| `STT_ENGINE`, `STT_*`, `OPENAI_API_KEY` | `openai-realtime`。ローカル認識も選択可能 | [STT](docs/stt.md) |
+| `VOICE_MODE`, `TTS_ENGINE`, `KANA_ENGINE`, `LOCAL_TTS_*`, `VOICEVOX_*` | `device`、PCM fallbackは`openai`、かな変換は`wasm` | [TTS](docs/tts.md) |
+| `MCP_PORT`, `MCP_HOST` | 8791、ループバックのみ。公開設定時はOAuth専用 | [MCP](docs/mcp.md) |
+| `MCP_PUBLIC_URL`, `MCP_PASSCODE`, `OAUTH_*`, `MCP_LOCAL_PORT` | 公開URL未設定ならOAuth無効。設定時は別のローカルMCPを8792で起動 | [setup](docs/setup.md), [security](docs/security.md) |
+| `EVENTS_ENABLED`, `EVENTS_SECRET_KEY`, `EVENTS_SEND`, `EVENTS_STORE_DIR` | 有効、保存暗号化鍵必須。3種類の署名付きイベント | [Events](docs/events.md) |
+| `QUIET_HOURS`, `QUIET_ALLOW_HIGH`, `NOTIFY_DEDUP_WINDOW_S`, `LOG_NOTIFICATIONS` | 22:00–07:00、high例外なし、重複窓600秒、本文ログなし | [notifications](bridge/src/notify/README.md) |
+| `SLACK_ENABLED`, `SLACK_*`, `ROUTE` | 無効。経路は`mcp` / `slack` / `both` | [Slack](docs/slack.md) |
+| `LOG_LEVEL`, `LOG_TRANSCRIPTS` | `info`、文字起こし本文ログなし | [privacy](docs/privacy.md), [STT](docs/stt.md) |
+
+MCPはローカルの `http://localhost:8791/mcp` で使えます。公開する場合は
+`MCP_PUBLIC_URL` と `MCP_PASSCODE` を設定し、[Funnelの手順](docs/setup.md)に従います。
+公開用・ローカル用MCPとデバイスWSは独立したリスナーです。
+
+操作対象は **最初に認証してhelloを送った1台**。切断したら、helloを受信済みの
+残りの端末を登録順に選びます。音声キューは接続ごとに作り直し、古い発話は移しません。
+通知キューとreply contextは1つの操作対象で共有します。複数台の同時操作は未対応です。
+STTの確定発話をlisten・Events・任意のSlackへ配信し、通知再生後10秒以内に始まった
+返事へ`reply_to`を付けます。SIGINT/SIGTERMで配信・再試行・音声・認識・全リスナーを停止します。
 
 ## Privacy
 

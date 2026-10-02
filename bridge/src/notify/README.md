@@ -39,9 +39,9 @@ window. Without a topic, or outside the window, it returns `undefined`. The
 context can be spread into the outgoing utterance payload. Stop the center with
 `dispose()` at device/application teardown to clear queued work and timers.
 
-## Protocol addition proposed for the PR body
+## Protocol v1 notification count
 
-After #4 merges, add the following row to `docs/protocol.md` and the B→D schema:
+The shared gateway schema and `docs/protocol.md` accept this message:
 
 | Direction | `type` | Payload fields |
 | --- | --- | --- |
@@ -50,6 +50,6 @@ After #4 merges, add the following row to `docs/protocol.md` and the B→D schem
 Example: `{ "type": "notice.pending", "count": 2 }`. A later count replaces the
 previous display value; zero clears it. The bridge emits count changes and
 refreshes the count on device `hello`. Firmware display and notification
-expression support remain integration work for #5/#17. Gateway validation must
-accept this message before hardware count updates can work; this branch keeps
-gateway/protocol files untouched as required.
+expression support remain integration work for #5/#17. The gateway now validates this message; the firmware count display remains
+a separate hardware/UI task. Notifications use `purpose: "notification"` so
+bridge mode honors `NOTIFY_TTS_ENGINE`.

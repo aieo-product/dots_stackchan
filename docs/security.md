@@ -4,7 +4,7 @@ MCP 用 HTTP リスナーだけを Tailscale Funnel のルートに割り当て�
 
 ## OAuth の境界
 
-`createOAuth(config, options?)` と `wrapMcpHandler(oauth, handler)` を `bridge/src/oauth/index.ts` からエクスポートする。`createMcpServer(dependencies, { oauth })` も同じラッパーを利用する。`bridge/src/index.ts` と既存の設定・デバイス統合への配線は後続の統合作業で行う。OAuth を省略した既存 API はローカル開発用なので、そのリスナーを公開しない。Funnel スクリプトの `up` は 401 と discovery、および `/device` の 404 を確認してから公開する。
+`createOAuth(config, options?)` と `wrapMcpHandler(oauth, handler)` を `bridge/src/oauth/index.ts` からエクスポートする。`createMcpServer(dependencies, { oauth })` も同じラッパーを利用する。`bridge/src/app/` が設定・デバイス・音声・Eventsを結線し、`index.ts` が起動する。OAuth を省略した既存 API はローカル開発用なので、そのリスナーを公開しない。Funnel スクリプトの `up` は 401 と discovery、および `/device` の 404 を確認してから公開する。
 
 公開 URL は `MCP_PUBLIC_URL=https://<your-host>.<your-tailnet>.ts.net:8443/mcp` のように環境変数で渡す。HTTPS の `/mcp` まで含む正規 URL とし、クエリー・fragment・ユーザー情報を付けない。issuer はその origin、resource は `/mcp` を含む URL で、転送された Host / Forwarded ヘッダーから生成しない。
 
@@ -32,6 +32,16 @@ MCP 用 HTTP リスナーだけを Tailscale Funnel のルートに割り当て�
 未使用とは一度もトークンを取得していない登録を指す。トークンを取得済みの登録は期限切れ・退避対象にしない。既存ストアに登録日時や使用フラグがない場合は、保存済み token / 交換済み code の証跡があるクライアントを使用済みに移行し、それ以外は次の整理で削除する。削除された既存登録は DCR からやり直す。使用済み登録だけで100件に達すると429になり、運用者が取り消しを行う必要がある。
 
 token endpoint の `resource` は任意。省略時は認可コード・refresh 系列に束縛済みの resource を使用する。値がある場合は空文字も含めて検証し、束縛先と不一致なら拒否する。認可要求の `resource` は引き続き必須。
+
+## Eventsの所有者と失効
+
+公開Eventsの所有者IDは検証済みaccess tokenの系列に紐付ける。refresh rotationでも
+同じ系列を使い、リクエスト引数・ヘッダーの任意のIDでは所有者を変更できない。
+配信・再試行前にOAuthストアを読み直し、その系列に有効なaccessまたは未使用refresh
+がなければ購読と失敗キューを除去する。ローカルMCPは同じOSの運用者を1つの所有者として扱う。
+ChatGPTの接続アプリの切り替えを通知するAPIは結線されていないため、ブリッジが
+そのUI操作だけから即時に失効を知ることはできない。確実に停止するにはOAuth revoke、
+`EVENTS_ENABLED=false`、またはブリッジ停止を使う。
 
 ## 保存とログ
 

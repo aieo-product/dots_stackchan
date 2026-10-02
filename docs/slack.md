@@ -90,9 +90,7 @@ may require admin approval; install this app only for the intended user.
    akc run -- npm run start --workspace bridge
    ```
 
-The start command above requires the application wiring described below. This
-issue supplies injectable modules; the existing gateway entry point does not
-enable them yet. Do not put token values in `.env`, files, shell history, or logs.
+The bridge entry point wires this mirror when `SLACK_ENABLED=true`. Do not put token values in `.env`, files, shell history, or logs.
 `akc run` resolves the references only in the child process; configuration expects
 the resulting tokens, not unresolved `keychain://` references.
 
@@ -112,9 +110,9 @@ Slack notices remain enabled even with `ROUTE=mcp`, if the mirror is started.
 ## Application integration
 
 The owning application injects the #6 utterance source, the #16 notification
-center, and the #10 MCP utterance handler. The integration is intentionally outside
-`index.ts`, the gateway config, and `device-hub.ts` in this issue. For example,
-in the owning composition module:
+center, and the #10 MCP utterance handler. The application wiring lives in `bridge/src/app/`; it stamps notification arrival
+time and fans out each final STT result according to `ROUTE`. The modular API
+remains available for embedding, for example:
 
 ```ts
 import { loadSlackConfig } from "./slack/config.js";
