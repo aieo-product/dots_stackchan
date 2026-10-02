@@ -14,14 +14,21 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check:pii": "bash scripts/check-pii.sh",
-    "check": "npm run lint && npm run typecheck && npm run test && npm run check:pii"
+    "check": "npm run lint && npm run typecheck && npm run test && npm run check:pii",
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "test:browser": "PLAYWRIGHT_BROWSERS_PATH=node_modules/.cache/playwright playwright test"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^22.0.0",
     "eslint": "^9.0.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.0.0",
     "vitest": "^3.0.0"
+  },
+  "bin": {
+    "dots-stackchan": "bin/dots-stackchan.mjs"
   }
 }

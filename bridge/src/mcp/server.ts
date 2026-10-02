@@ -7,6 +7,8 @@ import {
 
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 
+import { wrapMcpHandler, type OAuth } from "../oauth/index.js";
+
 import {
   createMcpToolRegistrar,
   type McpToolDependencies,
@@ -24,7 +26,10 @@ export interface McpHttpServer {
   close(): Promise<void>;
 }
 
-export function createMcpServer(dependencies: McpToolDependencies): McpHttpServer {
+export function createMcpServer(
+  dependencies: McpToolDependencies,
+  options: { readonly oauth?: OAuth } = {},
+): McpHttpServer {
   const tools = createMcpToolRegistrar(dependencies);
   const handler = createMcpHandler(
     () => {
@@ -37,6 +42,7 @@ export function createMcpServer(dependencies: McpToolDependencies): McpHttpServe
       responseMode: "json",
     },
   );
+  const fetchHandler = options.oauth ? wrapMcpHandler(options.oauth, handler.fetch) : handler.fetch;
   let httpServer: HttpServer | undefined;
 
   return {
@@ -45,8 +51,8 @@ export function createMcpServer(dependencies: McpToolDependencies): McpHttpServe
         throw new Error("The MCP server is already listening.");
       }
 
-      const server = createHttpServer((request, response) => {
-        void handleRequest(request, response, handler.fetch, host, port);
+      const server = createHttpServer({ requestTimeout: 30_000, headersTimeout: 30_000, keepAliveTimeout: 5_000 }, (request, response) => {
+        void handleRequest(request, response, fetchHandler, host, port, options.oauth !== undefined);
       });
       httpServer = server;
 
@@ -88,8 +94,9 @@ async function handleRequest(
   fetchHandler: (request: Request) => Promise<Response>,
   host: string,
   port: number,
+  publicSurface: boolean,
 ): Promise<void> {
-  if (safePathname(request.url) !== "/mcp") {
+  if (!publicSurface && safePathname(request.url) !== "/mcp") {
     sendText(response, 404, "Not found\n");
     return;
   }
@@ -99,9 +106,11 @@ async function handleRequest(
     const webRequest = toWebRequest(request, body, host, port);
     const webResponse = await fetchHandler(webRequest);
     await sendWebResponse(response, webResponse);
-  } catch {
+  } catch (error) {
     if (!response.headersSent) {
-      sendText(response, 500, "Internal server error\n");
+      response.setHeader("connection", "close");
+      sendText(response, error instanceof BodyTooLargeError ? 413 : 500,
+        error instanceof BodyTooLargeError ? "Request too large\n" : "Internal server error\n");
     } else {
       response.end();
     }
@@ -116,10 +125,16 @@ function safePathname(rawUrl: string | undefined): string {
   }
 }
 
+class BodyTooLargeError extends Error {}
+
 async function readBody(request: IncomingMessage): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
-  for await (const chunk of request) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  let size = 0;
+  for await (const chunk of request.iterator({ destroyOnReturn: false })) {
+    const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk as Uint8Array;
+    size += bytes.byteLength;
+    if (size > 65_536) throw new BodyTooLargeError();
+    chunks.push(bytes);
   }
   return Buffer.concat(chunks);
 }

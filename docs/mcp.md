@@ -6,7 +6,7 @@
 
 MCP App は Dot とスタックちゃんをつなぐ既定の経路である。ChatGPT の接続アプリでスタックちゃんをオンにしている間だけ Dot がこれらのツールを使える。接続アプリをオフにすると、Dot からスタックちゃんをすぐ切り離せる。
 
-認証と公開 HTTPS は別 issue で追加する。それまでは `MCP_HOST=127.0.0.1` のみを利用し、LAN やインターネットへ公開しないこと。`bridge/src/mcp/config.ts` の設定スキーマもループバック以外を拒否する。
+公開 HTTPS では `createMcpServer(dependencies, { oauth: createOAuth(config) })` で OAuth を必ず有効にする。認証なしのリスナーはローカル開発だけに使う。`MCP_HOST=127.0.0.1` のまま専用ポートで待ち受け、Funnel はそのポートのルートを転送する。`bridge/src/mcp/config.ts` の設定スキーマもループバック以外を拒否する。設定と接続手順は [setup.md](setup.md)、認証の境界と失効手順は [security.md](security.md) を参照する。
 
 統合側は `createMcpServer({ device, speaker, listener })` を生成し、`await server.listen(port, host)` で起動する。`device`、`speaker`、`listener` はそれぞれ DeviceLink、Speaker、Listener インターフェースを実装する。終了時は `await server.close()` を呼ぶ。
 

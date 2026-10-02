@@ -5,8 +5,22 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "noEmit": true,
-    "types": ["node", "vitest/globals"]
+    "types": [
+      "node",
+      "vitest/globals"
+    ]
   },
-  "include": ["bridge/src/**/*.ts", "bridge/test/**/*.ts", "firmware/test/**/*.ts"],
-  "exclude": ["node_modules", "dist", "spikes"]
+  "include": [
+    "bridge/src/**/*.ts",
+    "bridge/test/**/*.ts",
+    "firmware/test/**/*.ts",
+    "e2e/**/*.ts",
+    "playwright.config.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "spikes"
+  ]
 }
