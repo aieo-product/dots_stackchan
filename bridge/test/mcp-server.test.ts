@@ -8,6 +8,7 @@ import type {
   Expression,
   Listener,
   Speaker,
+  SpeechTicket,
 } from "../src/mcp/dependencies.js";
 import {
   createMcpServer,
@@ -44,17 +45,25 @@ class FakeDevice implements DeviceLink {
 }
 
 class FakeSpeaker implements Speaker {
+  done: Promise<void> = Promise.resolve();
   readonly calls: Array<{
     text: string;
     options?: { expression?: Expression; interrupt?: boolean };
   }> = [];
 
-  async say(
+  say(
     text: string,
     options?: { expression?: Expression; interrupt?: boolean },
-  ): Promise<void> {
+  ): SpeechTicket {
     this.calls.push({ text, ...(options === undefined ? {} : { options }) });
+    return {
+      id: `speech-${this.calls.length}`,
+      estimatedSeconds: text.length * 0.15,
+      done: this.done,
+    };
   }
+
+  cancelAll(): void {}
 }
 
 class FakeListener implements Listener {
@@ -148,6 +157,33 @@ describe("MCP server", () => {
       readOnlyHint: false,
       idempotentHint: false,
     });
+    expect(tools.find(({ name }) => name === "say")?.inputSchema.properties?.wait).toMatchObject({
+      type: "boolean",
+      default: false,
+    });
+  });
+
+  it("returns say and notify acknowledgements even when playback never finishes", async () => {
+    const { dependencies, device, speaker } = createDependencies();
+    speaker.done = new Promise(() => {});
+    const { client } = await connect(dependencies);
+
+    for (const wait of [undefined, false]) {
+      const result = await client.callTool({
+        name: "say",
+        arguments: { text: "こんにちは", ...(wait === undefined ? {} : { wait }) },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(textOf(result)).toBe("Queued (about 1 s).");
+    }
+    const notification = await client.callTool({
+      name: "notify",
+      arguments: { message: "Reminder", topic_id: "reminder" },
+    });
+    expect(notification.isError).not.toBe(true);
+    expect(textOf(notification)).toBe("Notification queued. topic_id: reminder");
+    expect(device.messages).toEqual([{ type: "chime", kind: "notify" }]);
+    expect(speaker.calls).toHaveLength(3);
   });
 
   it("also supports the legacy initialize flow", async () => {

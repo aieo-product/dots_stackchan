@@ -7,7 +7,7 @@ export interface Notification {
 }
 
 export interface NotificationCenter {
-  notify(notification: Notification): Promise<void>;
+  notify(notification: Notification): void;
 }
 
 export function createNotificationCenter(dependencies: {
@@ -15,11 +15,13 @@ export function createNotificationCenter(dependencies: {
   speaker: Speaker;
 }): NotificationCenter {
   return {
-    async notify(notification): Promise<void> {
+    notify(notification): void {
       dependencies.device.send({ type: "chime", kind: "notify" });
-      await dependencies.speaker.say(notification.message, {
+      const ticket = dependencies.speaker.say(notification.message, {
         interrupt: notification.priority === "high",
       });
+      // Playback can fail after the caller has received its queue acknowledgement.
+      void ticket.done.catch(() => {});
     },
   };
 }

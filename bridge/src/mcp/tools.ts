@@ -21,6 +21,7 @@ const DEFAULT_RATE_LIMIT: RateLimitPolicy = {
   windowMs: 60_000,
 };
 const DEFAULT_LISTEN_TIMEOUT_SECONDS = 30;
+const MAX_SPEECH_WAIT_MS = 60_000;
 
 export interface McpToolDependencies {
   readonly device: DeviceLink;
@@ -94,7 +95,7 @@ export function createMcpToolRegistrar(dependencies: McpToolDependencies): {
         "say",
         {
           description:
-            "Speak the given text aloud through the Stack-chan robot on the user's desk.",
+            "Queue text for Stack-chan to speak aloud and return immediately with an estimated duration. Set wait=true to wait for playback completion for up to 60 seconds.",
           inputSchema: z
             .object({
               text: z
@@ -111,6 +112,10 @@ export function createMcpToolRegistrar(dependencies: McpToolDependencies): {
                 .boolean()
                 .optional()
                 .describe("Stop the current speech before starting this one."),
+              wait: z
+                .boolean()
+                .default(false)
+                .describe("Wait for playback completion for up to 60 seconds. Defaults to false (return immediately after enqueueing)."),
             })
             .strict(),
           annotations: {
@@ -119,23 +124,32 @@ export function createMcpToolRegistrar(dependencies: McpToolDependencies): {
             idempotentHint: false,
           },
         },
-        async ({ text, expression, interrupt }) => {
+        async ({ text, expression, interrupt, wait }) => {
           const offline = requireOnline(dependencies.device);
           if (offline) return offline;
           const limited = rateLimit("say");
           if (limited) return limited;
 
-          activeSpeech += 1;
           try {
-            await dependencies.speaker.say(text, {
+            const ticket = dependencies.speaker.say(text, {
               ...(expression === undefined ? {} : { expression }),
               ...(interrupt === undefined ? {} : { interrupt }),
             });
-            return textResult("Stack-chan spoke the text.");
+            activeSpeech += 1;
+            const onSettled = (): void => {
+              activeSpeech -= 1;
+            };
+            void ticket.done.then(onSettled, onSettled);
+            if (!wait) {
+              return textResult(`Queued (about ${Math.ceil(ticket.estimatedSeconds)} s).`);
+            }
+            return textResult(
+              (await waitForSpeech(ticket.done))
+                ? "Stack-chan spoke the text."
+                : "Stack-chan is still speaking.",
+            );
           } catch {
             return toolError("Stack-chan could not speak the text.");
-          } finally {
-            activeSpeech -= 1;
           }
         },
       );
@@ -216,7 +230,7 @@ export function createMcpToolRegistrar(dependencies: McpToolDependencies): {
         "notify",
         {
           description:
-            "Play a notification chime and have Stack-chan announce a message for the user.",
+            "Send a notification chime, queue a message for Stack-chan to announce, and return immediately without waiting for playback. The result includes topic_id when provided.",
           inputSchema: z
             .object({
               message: z
@@ -244,19 +258,21 @@ export function createMcpToolRegistrar(dependencies: McpToolDependencies): {
             idempotentHint: false,
           },
         },
-        async ({ message, priority, topic_id }) => {
+        ({ message, priority, topic_id }) => {
           const offline = requireOnline(dependencies.device);
           if (offline) return offline;
           const limited = rateLimit("notify");
           if (limited) return limited;
 
           try {
-            await notificationCenter.notify({
+            notificationCenter.notify({
               message,
               priority: priority ?? "normal",
               ...(topic_id === undefined ? {} : { topicId: topic_id }),
             });
-            return textResult("Stack-chan announced the notification.");
+            return textResult(
+              `Notification queued.${topic_id === undefined ? "" : ` topic_id: ${topic_id}`}`,
+            );
           } catch {
             return toolError("Stack-chan could not announce the notification.");
           }
@@ -327,6 +343,20 @@ export function createMcpToolRegistrar(dependencies: McpToolDependencies): {
       );
     },
   };
+}
+
+async function waitForSpeech(done: Promise<void>): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      done.then(() => true),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), MAX_SPEECH_WAIT_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function requireOnline(device: DeviceLink): CallToolResult | undefined {

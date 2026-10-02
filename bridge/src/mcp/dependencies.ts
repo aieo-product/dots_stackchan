@@ -26,11 +26,18 @@ export interface DeviceLink {
   };
 }
 
+export interface SpeechTicket {
+  readonly id: string;
+  readonly estimatedSeconds: number;
+  readonly done: Promise<void>;
+}
+
 export interface Speaker {
   say(
     text: string,
-    options?: { expression?: Expression; interrupt?: boolean },
-  ): Promise<void>;
+    opts?: { expression?: Expression; interrupt?: boolean },
+  ): SpeechTicket;
+  cancelAll(): void;
 }
 
 export interface Listener {
