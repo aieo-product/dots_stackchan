@@ -7,6 +7,8 @@ import { SttSession, type Utterance } from "./session.js";
 export interface SttHubOptions {
   createEngine: () => SttEngine;
   logTranscripts?: boolean;
+  /** Explicit PTT cancels playback before starting capture in the integrated app. */
+  allowBargeIn?: boolean;
 }
 
 /** Owns one session per connected device; reconnect/shutdown always disposes it. */
@@ -28,22 +30,25 @@ export function attachStt(hub: DeviceHub, options: SttHubOptions, logger: Logger
   };
   const start = ({ deviceId, payload }: HubEvent<Extract<DeviceToBridgeMessage, { type: "mic.start" }>>): void => {
     const state = hub.getStatus(deviceId).state;
-    if (state === "speaking" || state === "notifying") { logger.warn("stt_rejected", { reason: "device_playing" }); return; }
+    if (!options.allowBargeIn && (state === "speaking" || state === "notifying")) { logger.warn("stt_rejected", { reason: "device_playing" }); return; }
     sessions.get(deviceId)?.start(payload.seq);
   };
   const data = ({ deviceId, payload }: HubEvent<BinaryFrame>): void => sessions.get(deviceId)?.push(payload.seq, payload.data);
   const end = ({ deviceId, payload }: HubEvent<Extract<DeviceToBridgeMessage, { type: "mic.end" }>>): void => sessions.get(deviceId)?.end(payload.seq);
+  const pause = ({ deviceId }: HubEvent<unknown>): void => sessions.get(deviceId)?.pause();
   hub.on("online", online);
   hub.on("offline", remove);
   hub.on("mic.start", start);
   hub.on("mic.data", data);
   hub.on("mic.end", end);
+  hub.on("stt.pause", pause);
   return () => {
     hub.off("online", online);
     hub.off("offline", remove);
     hub.off("mic.start", start);
     hub.off("mic.data", data);
     hub.off("mic.end", end);
+    hub.off("stt.pause", pause);
     for (const session of sessions.values()) session.close();
     sessions.clear();
   };

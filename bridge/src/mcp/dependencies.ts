@@ -1,44 +1,14 @@
-export const EXPRESSIONS = [
-  "neutral",
-  "happy",
-  "sad",
-  "doubt",
-  "sleepy",
-  "angry",
-] as const;
+import { faceSchema } from "../protocol.js";
+export const EXPRESSIONS = faceSchema.shape.expression.options;
 
-export type Expression = (typeof EXPRESSIONS)[number];
+export type { Expression, Speaker, SpeechTicket } from "../tts/speaker.js";
+export type { DeviceMessage } from "../tts/types.js";
+import type { DeviceLink as TtsDeviceLink } from "../tts/types.js";
 
-export interface DeviceMessage {
-  type: string;
-  [key: string]: unknown;
-}
-
-export interface DeviceLink {
-  send(message: DeviceMessage): void;
-  sendBinary(kind: number, seq: number, data: Uint8Array): void;
+// Tools only need the message surface, not transport teardown hooks.
+export type DeviceLink = Pick<TtsDeviceLink, "send" | "sendBinary" | "online" | "caps"> & {
   on(event: "message", callback: (message: unknown) => void): void;
-  readonly online: boolean;
-  readonly caps: {
-    readonly sanotts: boolean;
-    readonly servo: boolean;
-    readonly mic: boolean;
-  };
-}
-
-export interface SpeechTicket {
-  readonly id: string;
-  readonly estimatedSeconds: number;
-  readonly done: Promise<void>;
-}
-
-export interface Speaker {
-  say(
-    text: string,
-    opts?: { expression?: Expression; interrupt?: boolean },
-  ): SpeechTicket;
-  cancelAll(): void;
-}
+};
 
 export interface Listener {
   nextUtterance(timeoutMs: number): Promise<{ text: string } | null>;

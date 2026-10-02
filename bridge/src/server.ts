@@ -85,6 +85,7 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
       hub.close();
       await new Promise<void>((resolve, reject) => {
         webSockets.close(() => {
+          if (!httpServer.listening) { resolve(); return; }
           httpServer.close((error) => (error === undefined ? resolve() : reject(error)));
         });
       });

@@ -1,4 +1,5 @@
-export type Expression = 'neutral' | 'happy' | 'sad' | 'doubt' | 'sleepy' | 'angry';
+import type { BridgeToDeviceMessage } from '../protocol.js';
+export type Expression = Extract<BridgeToDeviceMessage, { type: 'face' }>['expression'];
 export interface SayOptions { expression?: Expression; interrupt?: boolean; purpose?: 'reply' | 'notification' }
 export interface SpeechTicket {
   readonly id: string;

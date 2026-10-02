@@ -1,3 +1,4 @@
+import type { DeviceCapabilities } from '../protocol.js';
 export interface DeviceMessage {
   type: string;
   [key: string]: unknown;
@@ -6,7 +7,7 @@ export interface DeviceMessage {
 /** A per-device adapter; the bridge core supplies this during integration. */
 export interface DeviceLink {
   readonly online: boolean;
-  readonly caps: { sanotts: boolean; servo: boolean; mic: boolean };
+  readonly caps: DeviceCapabilities;
   send(message: DeviceMessage): void;
   sendBinary(kind: number, seq: number, data: Uint8Array): void;
   on(event: 'message' | 'offline', listener: (message?: DeviceMessage) => void): void;

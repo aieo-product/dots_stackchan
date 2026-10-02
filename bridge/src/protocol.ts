@@ -87,6 +87,17 @@ export const chimeSchema = z.strictObject({
   kind: z.literal("notify"),
 });
 
+export const noticePendingSchema = z.strictObject({
+  type: z.literal("notice.pending"),
+  count: z.number().int().nonnegative(),
+});
+
+// Already used by firmware to show the selected synthesis mode.
+export const voiceModeSchema = z.strictObject({
+  type: z.literal("voice.mode"),
+  mode: z.enum(["device", "bridge"]),
+});
+
 export const pingSchema = z.strictObject({
   type: z.literal("ping"),
   t: z.number(),
@@ -126,6 +137,8 @@ export const bridgeToDeviceMessageSchema = z.discriminatedUnion("type", [
   ttsEndSchema,
   ttsCancelSchema,
   chimeSchema,
+  noticePendingSchema,
+  voiceModeSchema,
   pingSchema,
   pongSchema,
 ]);

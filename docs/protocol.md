@@ -37,6 +37,8 @@ Every text frame is one JSON object. Fields shown below are top-level fields alo
 | B→D | `tts.end` | `{seq: u16}` |
 | B→D | `tts.cancel` | No fields |
 | D→B | `tts.done` | `{seq: u16, ok: bool}` |
+| B→D | `notice.pending` | `{count: non-negative integer}`; queued notifications excluding active playback; replaces the previous count, zero clears it |
+| B→D | `voice.mode` | `{mode: "device" \| "bridge"}`; existing firmware mode display |
 | B→D | `chime` | `{kind: "notify"}` |
 | Both | `ping` / `pong` | `{t: number}` |
 

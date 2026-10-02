@@ -29,7 +29,7 @@ export interface McpHttpServer {
 
 export function createMcpServer(
   dependencies: McpToolDependencies,
-  settings: EventRegistrar | { readonly oauth?: OAuth; readonly events?: EventRegistrar } = {},
+  settings: EventRegistrar | { readonly oauth?: OAuth; readonly events?: EventRegistrar; readonly localPrincipal?: string } = {},
 ): McpHttpServer {
   const options = 'register' in settings ? { events: settings } : settings;
   const events = options.events;
@@ -46,7 +46,11 @@ export function createMcpServer(
       responseMode: "json",
     },
   );
-  const fetchHandler = options.oauth ? wrapMcpHandler(options.oauth, handler.fetch) : handler.fetch;
+  const authenticatedFetch = (request: Request) => {
+    const principal = options.oauth ? options.oauth.principal(request) : options.localPrincipal;
+    return handler.fetch(request, principal ? { authInfo: { token: "", clientId: principal, scopes: ["stackchan"] } } : undefined);
+  };
+  const fetchHandler = options.oauth ? wrapMcpHandler(options.oauth, authenticatedFetch) : authenticatedFetch;
   let httpServer: HttpServer | undefined;
 
   return {

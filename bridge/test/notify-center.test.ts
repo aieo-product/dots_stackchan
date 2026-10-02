@@ -144,7 +144,7 @@ describe("notification queue", () => {
     expect(texts()).toEqual([]);
     state("idle");
     expect(texts()).toEqual(["High one"]);
-    expect(speaker.say).toHaveBeenLastCalledWith("High one", { interrupt: false });
+    expect(speaker.say).toHaveBeenLastCalledWith("High one", { interrupt: false, purpose: "notification" });
     await vi.advanceTimersByTimeAsync(2_000);
     expect(texts()).toEqual(["High one"]);
     tickets[0].resolve();

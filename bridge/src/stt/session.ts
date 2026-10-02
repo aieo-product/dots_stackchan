@@ -9,6 +9,7 @@ export interface Utterance {
   lang: string;
   duration_ms: number;
   latency_ms: number;
+  started_at_ms: number;
 }
 export interface SttSessionOptions {
   logger: Logger;
@@ -20,6 +21,7 @@ export interface SttSessionOptions {
 interface Recording {
   seq: number;
   bytes: number;
+  startedAt: number;
   ending: boolean;
   durationTimer?: NodeJS.Timeout;
   idleTimer?: NodeJS.Timeout;
@@ -41,7 +43,7 @@ export class SttSession extends EventEmitter {
   public async prepare(): Promise<void> { await this.engine.prepare(); }
   public start(seq: number): void {
     if (this.closed || this.recording !== undefined) { this.warn("busy"); return; }
-    const recording: Recording = { seq, bytes: 0, ending: false };
+    const recording: Recording = { seq, bytes: 0, startedAt: Date.now(), ending: false };
     this.recording = recording;
     try { this.engine.start(seq); } catch { this.abort("start_failed"); return; }
     recording.durationTimer = setTimeout(() => void this.finish(recording), this.maxDurationMs());
@@ -65,6 +67,7 @@ export class SttSession extends EventEmitter {
     if (recording.seq !== seq) { this.warn("end_sequence_mismatch"); return; }
     void this.finish(recording);
   }
+  public pause(): void { if (this.recording) this.cancel(); }
   public cancel(): void {
     const recording = this.recording;
     this.recording = undefined;
@@ -96,7 +99,7 @@ export class SttSession extends EventEmitter {
       this.recording = undefined;
       this.clearTimers(recording);
       const utterance: Utterance = {
-        seq: recording.seq, text: result.text, lang: result.lang,
+        seq: recording.seq, text: result.text, lang: result.lang, started_at_ms: recording.startedAt,
         duration_ms: Math.round(recording.bytes / BYTES_PER_SECOND * 1_000),
         latency_ms: Math.max(0, Math.round(performance.now() - endedAt)),
       };

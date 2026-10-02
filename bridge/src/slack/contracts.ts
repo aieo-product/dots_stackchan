@@ -1,27 +1,12 @@
-import type { BridgeToDeviceMessage } from "../protocol.js";
-
-export type Expression = Extract<BridgeToDeviceMessage, { type: "face" }>["expression"];
-
-export interface SpeechTicket {
-  readonly id: string;
-  readonly estimatedSeconds: number;
-  readonly done: Promise<void>;
-}
-
-export interface Speaker {
-  say(text: string, opts?: { expression?: Expression; interrupt?: boolean }): SpeechTicket;
-  cancelAll(): void;
-}
+export type { Expression, Speaker, SpeechTicket } from "../tts/speaker.js";
+import type { Notification } from "../notify/center.js";
+import type { Utterance as SttUtterance } from "../stt/session.js";
 
 export interface NotificationSink {
-  submit(n: { source: "slack"; message: string; priority: "normal" | "high"; topicId?: string }): void;
+  submit(n: Omit<Notification, "receivedAt"> & { source: "slack" }): void;
 }
 
-export interface Utterance {
-  text: string;
-  lang: string;
-  reply_to?: string;
-}
+export type Utterance = Pick<SttUtterance, "text" | "lang"> & { reply_to?: string };
 
 export interface UtteranceSource {
   on(event: "utterance", cb: (u: Utterance) => void): void;

@@ -41,6 +41,7 @@ export function createNotificationCenter(dependencies: {
   config?: NotificationConfig;
   now?: () => number;
   log?: (entry: NotificationLog) => void;
+  isSpeaking?: () => boolean;
 }): NotificationCenter {
   const { device, speaker } = dependencies;
   const now = dependencies.now ?? Date.now;
@@ -86,7 +87,7 @@ export function createNotificationCenter(dependencies: {
     timer = undefined;
     if (disposed) return;
     reportPending();
-    if (playing || pending.length === 0 || !device.online) return;
+    if (playing || pending.length === 0 || !device.online || dependencies.isSpeaking?.()) return;
 
     const at = now();
     const quiet = isQuietHours(config.QUIET_HOURS, at);
@@ -120,7 +121,7 @@ export function createNotificationCenter(dependencies: {
     reportPending();
     try {
       device.send({ type: "chime", kind: "notify" });
-      const ticket = speaker.say(notification.message, { interrupt: false });
+      const ticket = speaker.say(notification.message, { interrupt: false, purpose: "notification" });
       void ticket.done.then(
         () => finish(notification, true),
         () => finish(notification, false),

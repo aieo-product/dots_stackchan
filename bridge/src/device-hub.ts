@@ -64,7 +64,7 @@ export class DeviceHub extends EventEmitter {
     });
     socket.on("message", (data, isBinary) => this.handleFrame(deviceId, socket, data, isBinary));
     socket.once("close", () => this.disconnect(deviceId, socket));
-    socket.on("error", (error) => this.logger.warn("device_socket_error", { device_id: deviceId, message: error.message }));
+    socket.on("error", () => this.logger.warn("device_socket_error", { device_id: deviceId }));
   }
 
   public send(deviceId: string, message: BridgeToDeviceMessage): boolean {
@@ -114,7 +114,12 @@ export class DeviceHub extends EventEmitter {
 
   public close(): void {
     this.stopHeartbeat();
-    for (const connection of this.connections.values()) connection.socket.close(1001, "server_shutdown");
+    for (const connection of this.connections.values()) {
+      connection.socket.close(1001, "server_shutdown");
+      const timer = setTimeout(() => connection.socket.terminate(), 1_000);
+      timer.unref();
+      connection.socket.once("close", () => clearTimeout(timer));
+    }
   }
 
   private disconnect(deviceId: string, socket: WebSocket): void {

@@ -90,6 +90,19 @@ export class OAuthStore {
     return this.#read().access.some((token) => equalHash(token.hash, tokenHash) && token.resource === resource && token.expires > now);
   }
 
+  accessPrincipal(tokenHash: string, resource: string, now: number): string | null {
+    const token = this.#read().access.find(token => equalHash(token.hash, tokenHash) && token.resource === resource && token.expires > now);
+    return token ? `oauth:${token.family}` : null;
+  }
+
+  principalActive(principal: string, resource: string, now: number): boolean {
+    if (!principal.startsWith("oauth:")) return false;
+    const family = principal.slice(6);
+    const data = this.#read();
+    return [...data.access, ...data.refresh].some(token => token.family === family && token.resource === resource &&
+      token.expires > now && !token.used);
+  }
+
   // Callers receive a copy, so neither a failed transaction nor an accidental edit poisons the cache.
   read(): StoreData { return structuredClone(this.#read()); }
 

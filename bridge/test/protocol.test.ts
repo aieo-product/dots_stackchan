@@ -32,11 +32,17 @@ describe("protocol schemas", () => {
     { type: "tts.end", seq: 3 },
     { type: "tts.cancel" },
     { type: "chime", kind: "notify" },
+    { type: "notice.pending", count: 0 },
+    { type: "voice.mode", mode: "device" },
     { type: "ping", t: 123 },
     { type: "pong", t: 123 },
   ])("accepts bridge message $type", (message) => {
     expect(bridgeToDeviceMessageSchema.safeParse(message).success).toBe(true);
     expect(bridgeToDeviceMessageSchema.safeParse({ ...message, future_field: true }).success).toBe(false);
+  });
+
+  it.each([-1, 0.5, "1", null])("rejects invalid notification counts: %j", count => {
+    expect(bridgeToDeviceMessageSchema.safeParse({ type: "notice.pending", count }).success).toBe(false);
   });
 
   it("strips extra hello capability fields", () => {

@@ -26,7 +26,7 @@ describe("SttSession", () => {
     session.end(9);
     await vi.waitFor(() => expect(utterance).toHaveBeenCalledOnce());
     expect(utterance.mock.calls[0]?.[0]).toEqual({
-      seq: 9, text: "こんにちは、スタックちゃん", lang: "ja", duration_ms: 20, latency_ms: expect.any(Number),
+      seq: 9, text: "こんにちは、スタックちゃん", lang: "ja", duration_ms: 20, latency_ms: expect.any(Number), started_at_ms: expect.any(Number),
     });
     expect(lines.join("\n")).not.toContain("こんにちは");
     session.close();

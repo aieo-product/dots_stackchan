@@ -236,7 +236,7 @@ describe("MCP server", () => {
         text: "Hello",
         options: { expression: "happy", interrupt: true },
       },
-      { text: "Package arrived", options: { interrupt: false } },
+      { text: "Package arrived", options: { interrupt: false, purpose: "notification" } },
     ]);
     expect(device.messages).toEqual([
       { type: "face", expression: "doubt" },

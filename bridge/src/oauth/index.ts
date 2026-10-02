@@ -1,6 +1,6 @@
 import { beginAuthorization, finishAuthorization } from "./authorize.js";
 import { DEFAULT_REDIRECT_ORIGINS, readOAuthConfig, validateOAuthConfig, type OAuthConfig } from "./config.js";
-import { passcodeChecker } from "./crypto.js";
+import { hash, passcodeChecker } from "./crypto.js";
 import { metadata, unauthorized } from "./metadata.js";
 import { json, OAuthError } from "./protocol.js";
 import { register } from "./register.js";
@@ -16,6 +16,8 @@ export interface AccessEvent {
 export interface OAuth {
   /** Exclusive public surface: MCP, discovery and OAuth only. */
   wrap(mcpHandler: HttpHandler): HttpHandler;
+  principal(request: Request): string | null;
+  hasAccess(principal: string): boolean;
 }
 export interface OAuthOptions {
   readonly now?: () => number;
@@ -35,6 +37,15 @@ export function createOAuth(config: OAuthConfig = readOAuthConfig(), options: OA
   const log = options.log ?? ((event: AccessEvent) => console.info(JSON.stringify(event)));
 
   return {
+    principal(request): string | null {
+      const authorization = request.headers.get("authorization");
+      if (!authorization || !/^Bearer [A-Za-z0-9_-]{43}$/i.test(authorization)) return null;
+      return store.accessPrincipal(hash(authorization.slice(7)), resource, now());
+    },
+    hasAccess(principal): boolean {
+      try { return store.principalActive(principal, resource, now()); }
+      catch { return false; }
+    },
     wrap(mcpHandler): HttpHandler {
       return async (request) => {
         let route: AccessEvent["route"] = "other";
