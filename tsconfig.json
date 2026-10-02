@@ -7,6 +7,6 @@
     "noEmit": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["bridge/src/**/*.ts", "bridge/test/**/*.ts"],
+  "include": ["bridge/src/**/*.ts", "bridge/test/**/*.ts", "firmware/test/**/*.ts"],
   "exclude": ["node_modules", "dist", "spikes"]
 }

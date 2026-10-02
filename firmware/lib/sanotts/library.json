@@ -1,0 +1,18 @@
+{
+  "name": "sanotts",
+  "version": "0.2.0+a478680",
+  "description": "sanoTTS-jp C99 inference core for dots_stackchan",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ayutaz/sanoTTS-jp"
+  },
+  "build": {
+    "flags": [
+      "-O2",
+      "-DSAAN_INT8_ACT=1",
+      "-DSAAN_PIE=1",
+      "-DSAAN_PORT_HEADER=\\\"saan_port_dots.h\\\""
+    ]
+  }
+}
