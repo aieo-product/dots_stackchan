@@ -51,3 +51,11 @@ test('incomplete or empty audio fails before transmission', async () => {
   await expect(engine.synthesize('Hello!')).rejects.toThrow('OpenAI TTS failed');
  }
 });
+
+test('speed-oriented tts-1 uses raw PCM without unsupported instructions', async () => {
+ const create = vi.fn().mockResolvedValue(new Response(new Uint8Array(240)));
+ const engine = new OpenAiTtsEngine({ ...options, TTS_MODEL: 'tts-1' }, { create } as unknown as SpeechClient);
+ await engine.synthesize('Hello!');
+ expect(create).toHaveBeenCalledWith(expect.objectContaining({ model: 'tts-1', response_format: 'pcm',
+  instructions: undefined }), expect.anything());
+});

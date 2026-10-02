@@ -1,5 +1,6 @@
 import { StreamingResampler, type PcmFormat } from './streaming-resampler.js';
 import { abortable } from './types.js';
+import type { TtsLog } from './types.js';
 
 export const MAX_AUDIO_BYTES = 16 * 1024 * 1024;
 
@@ -29,16 +30,23 @@ export async function* responseBytes(response: Response, signal?: AbortSignal): 
 export function* frames(bytes: Uint8Array): Generator<Uint8Array> {
   for (let i = 0; i < bytes.length; i += 4092) yield bytes.subarray(i, i + 4092);
 }
-export async function* resampleStream(source: AsyncIterable<Uint8Array>, format: PcmFormat): AsyncGenerator<Uint8Array> {
+export async function* resampleStream(source: AsyncIterable<Uint8Array>, format: PcmFormat, log?: TtsLog): AsyncGenerator<Uint8Array> {
   const resampler = new StreamingResampler(format);
   let count = 0;
+  let conversionMs = 0;
   for await (const bytes of source) {
+    const startedAt = performance.now();
     const output = resampler.push(bytes);
+    conversionMs += performance.now() - startedAt;
+    if (!count && output.length) log?.('tts.conversion_first', { conversionMs, outputBytes: output.length });
     count += output.length; yield* frames(output);
   }
+  const startedAt = performance.now();
   const last = resampler.push(new Uint8Array(), true);
+  conversionMs += performance.now() - startedAt;
   count += last.length; yield* frames(last);
   if (!count) throw new Error('Empty TTS audio');
+  log?.('tts.conversion', { conversionMs, outputBytes: count });
 }
 export async function collectAudio(source: AsyncIterable<Uint8Array>): Promise<{ data: Uint8Array; sampleRate: 16000 }> {
   const chunks: Uint8Array[] = []; let length = 0;

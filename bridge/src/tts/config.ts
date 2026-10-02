@@ -7,6 +7,7 @@ export const ttsEnvSchema = z.object({
   TTS_ENGINE: z.enum(['sanotts', 'openai', 'voicevox', 'local-http']).optional(),
   NOTIFY_TTS_ENGINE: z.enum(['openai', 'voicevox', 'local-http']).optional(),
   TTS_VOICE: z.string().trim().min(1).default('coral'),
+  TTS_MODEL: z.enum(['gpt-4o-mini-tts', 'tts-1', 'tts-1-hd']).default('gpt-4o-mini-tts'),
   TTS_MAX_CHARS: z.coerce.number().int().min(1).max(500).default(500),
   TTS_INSTRUCTIONS: z.string().trim().default('Speak in a bright, cheerful and friendly tone.'),
   VOICEVOX_URL: z.string().url().optional(),

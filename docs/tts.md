@@ -17,6 +17,7 @@ bridge mode は日本語を含む **すべての文**を `TTS_ENGINE` で合成�
 | `NOTIFY_TTS_ENGINE` | `TTS_ENGINE` と同じ | 通知用の PCM エンジン |
 | `KANA_ENGINE` | `wasm` | Python 不要の `wasm` / 任意の精度優先 `python` |
 | `TTS_VOICE` | `coral` | OpenAI の声 |
+| `TTS_MODEL` | `gpt-4o-mini-tts` | OpenAI Speech のモデル。`tts-1` / `tts-1-hd` も選択可 |
 | `TTS_INSTRUCTIONS` | 明るく親しみやすい英語の指示 | OpenAI の任意の声色・速さ指示。空文字で無効 |
 | `TTS_MAX_CHARS` | `500` | 1〜500。Unicode コードポイント数で制限 |
 | `OPENAI_API_KEY` | なし | PCM 経路を利用するときだけ必要 |
@@ -66,7 +67,7 @@ uv run --no-project --with piper-plus-g2p==0.2.0 \
 
 ## キューと統合
 
-`SpeechQueue` は #8 と共有する `speaker.ts` の `Speaker` に適合する。`say` は同期的に enqueue して `{id, estimatedSeconds, done}` を直ちに返す。`estimatedSeconds` は切り詰め後の文字数 × 0.15。次の文の HTTP は現在の文の転送・再生中に開始し、最初の出力チャンクまで先行取得する。先行取得は 1 文だけ。現在の文の転送終了と `tts.done {ok:true}` の両方を待ってから次の文を端末へ送る。全て成功すると ticket の `done` が resolve する。
+`SpeechQueue` は #8 と共有する `speaker.ts` の `Speaker` に適合する。`say` は同期的に enqueue して `{id, estimatedSeconds, done}` を直ちに返す。`estimatedSeconds` は切り詰め後の文字数 × 0.15。次の文の HTTP は現在の文の最初の PCM フレームを送った直後に開始し、最初の出力チャンクまで先行取得する。先行取得は 1 文だけ。現在の文の転送終了と `tts.done {ok:true}` の両方を待ってから次の文を端末へ送る。全て成功すると ticket の `done` が resolve する。
 
 `interrupt:true` は現在の合成・転送・再生と待機中の ticket を中止し、`tts.cancel` を送って新しい発話へ進む。`cancelAll()`、切断、タイムアウト、変換失敗、`ok:false` では ticket を reject する。AbortSignal を無視する変換器もキューを止め続けない。遅れて届く別 seq の done は無視する。1 接続内で 16-bit seq を再利用しないため、65,535 文の送信後は新しい接続用キューを作る。
 
@@ -93,7 +94,8 @@ queue.on('speaking', (active: boolean) => { /* #6 のマイク制御へ通知 */
 const speaker: Speaker = queue;
 const ticket = speaker.say('こんにちは。今日もがんばろう。', { expression: 'happy' });
 await ticket.done;
-// 終了時: queue.dispose(); kana.dispose();
+// 起動時: await router.warmup(); // 接続の温めに失敗しても起動は継続可能
+// 終了時: queue.dispose(); await router.dispose(); kana.dispose();
 ```
 
 ## PCM 経路
@@ -103,6 +105,67 @@ await ticket.done;
 HTTP body を逐次読み、最初の出力ができた時点で `tts.start {seq, sample_rate:16000, channels:1, bits:16, voice_mode:'bridge', engine}` → kind `0x02` の PCM → `tts.end {seq}` の順に送る。PCM payload は 4,092 bytes 以下、3-byte header 込みで 4,095 bytes 以下。リサンプラーはサンプル途中のバイト、stereo の channel 境界、filter 履歴、出力位置を保持し、文末だけ flush する。WAV と raw PCM の共通経路も同じ filter を使う。入力は 1 応答 16MiB 以下、空音声・不完全サンプル・非有限 float は失敗にする。
 
 端末の固定バッファに収まるよう、約 200ms の送信先行量に制限する。HTTP が遅れても先行量の余裕を蓄積しない。表情は PCM の開始前に `face` で送る。`tts.cancel` は再生停止と同時に現在・先行取得中の HTTP body を abort/cancel する。期限は OpenAI / VOICEVOX が 30 秒、local-http が設定値で、ヘッダーだけでなく body の途中にも適用する。
+
+### 低遅延と区間計測 (#30)
+
+2026-10-02 に [OpenAI 公式 TTS ガイド](https://developers.openai.com/api/docs/guides/text-to-speech)を確認した。最速の応答形式として PCM / WAV、リアルタイム用途には `gpt-4o-mini-tts` を推奨している。`tts-1` の[モデル仕様](https://developers.openai.com/api/docs/models/tts-1)は速度重視とされるが、mini との数値比較は示されていない。声色指示を維持する既定は mini + PCM。`TTS_MODEL=tts-1` も比較できるが、`TTS_INSTRUCTIONS` は非対応なので送らない。`tts-1-hd` は遅延優先には推奨しない。[廃止予定](https://developers.openai.com/api/docs/deprecations)では既存 TTS モデルの 2027-01-06 終了と Realtime への移行が案内されている。Realtime API への移行はこの Speech HTTP 修正の範囲外。
+
+修正前も SDK の binary response は生の `Response` を返し、`responseBytes` は body を逐次読んでいた。キューにも次文の準備処理はあった。従って、報告された実 API の 2540ms を「全音声のバッファリング」や「先読みが無かったこと」の結果とは断定できない。従来の即時応答テストには API の最初のバイトまでの待ち時間がなく、区間ログも不足していた。
+
+OpenAI 用に [undici Agent](https://github.com/nodejs/undici/blob/main/docs/docs/api/Agent.md) を所有し、同時接続数を 2、HTTP pipelining を 1、keep-alive の上限を 60 秒とする。前文の body が開いていても次文は別ソケットで開始でき、その後は再利用する。bridge mode ではアプリ受付前に認証不要の `GET /audio/speech` を 2 本送り、応答を読み切って接続を温める。これは音声生成を行わず、401/405 でも接続確立には使える。HEAD は undici が通常接続を閉じるため使わない。温めは 10 秒で期限切れとし、失敗時もアプリは起動を継続する。サーバーが接続を閉じた場合や長い無音期間後は再接続する。終了時は `router.dispose()` でプールを破棄する。device mode のエンジンは引き続き遅延生成する。
+
+OpenAI の HTTP / body 全体の期限は 30 秒。自動リトライは待ち時間を隠さないよう無効にした。SDK 独自のログも無効にし、provider の応答、入力、認証情報を区間ログへ出さない。
+
+`LOG_LEVEL=debug` では以下を記録する。時間は単調時計で測った ms。HTTP ログの `request` はエンジン内の連番、キューログの `sentence` / `seq` は文・送信の順番。
+
+| イベント | 区間・値 |
+| --- | --- |
+| `tts.http_connect` | 新しい接続の DNS / TCP / TLS 合計 `connectionMs`。再利用時は発生しない |
+| `tts.http_warmup` | 起動前の事前接続 `warmupMs` / `ok` |
+| `tts.prepare` | enqueue → 文の準備開始 `queuedToPrepareMs`、`prefetched` |
+| `tts.http_request` | HTTP 開始、モデル |
+| `tts.http_headers` | HTTP 開始 → ヘッダー `headersMs` |
+| `tts.http_first_byte` | HTTP 開始 → 最初の PCM バイト `firstByteMs` |
+| `tts.conversion_first` / `tts.conversion` | 最初の出力 / 全出力の変換 CPU 時間 `conversionMs`、`outputBytes`。ネットワーク・再生待機を除く |
+| `tts.http_body` | HTTP 開始 → body 消費完了 `bodyMs`。送信ペーシング・先読み待機も含む |
+| `tts.first_audio` | enqueue → 最初の送信 `replyToFirstAudioMs`、準備完了 → 最初の送信 `firstFrameSendMs` |
+| `tts.sent` | 送信開始 → 終了 `sendMs`。HTTP 受信待ち・ペーシングを含む |
+
+次文の準備は最初の PCM 送信直後（sanoTTS は `speak.kana` 送信直後）に開始する。先行取得は次の 1 文の最初の変換チャンクまで。OpenAI / VOICEVOX / local-http と、stream のないエンジンで共通。次文の送信は前文の送信完了と `tts.done` を両方待つ。割り込みは送信中・先読み中の HTTP を両方中止する。
+
+`bridge/test/fixtures/fake-openai-tts.ts` は実 HTTP の偽 OpenAI サーバー。ヘッダーを先に返し、最初の PCM は 300ms 後、その後は 50ms 間隔で合計 10 チャンクを送り、最後のチャンクから 50ms 後に EOF とする。3 文のテストで EOF 前の送信、最初のフレーム以後かつ前文の EOF 前の次文 HTTP、done による送信待機、2 本の温めたソケットの再利用、割り込み時の両 body の終了を確認する。別途 5 回計測も毎回 timings を出力する。
+
+偽 API の計測結果（単回テスト実行、実 API の保証ではない）:
+
+| 回 | `replyToFirstAudioMs` |
+| --- | ---: |
+| 1 | 303.18 |
+| 2 | 302.96 |
+| 3 | 302.92 |
+| 4 | 302.61 |
+| 5 | 301.03 |
+| 中央値 | **302.92** |
+
+1 回目の区間例はヘッダー 0.72ms、最初のバイト 302.53ms、最初の変換 CPU 0.54ms、最初の送信処理 0.04ms。次文の準備は enqueue 後 303.19ms、前文の送信完了は 812.14ms。3 文で送信した PCM は合計 48,000 bytes、payload は全て 4,092 bytes 以下。
+
+実 API の計測（2026-10-02、Apple Silicon の Mac、`gpt-4o-mini-tts`、PCM、温めた接続、2 文の返事を 5 回）:
+
+| 回 | 返事 → 最初の PCM フレーム | OpenAI の最初のバイトまで | ブリッジの処理（変換・送信） |
+|---:|---:|---:|---:|
+| 1 | 2,952 ms | 2,950 ms | 約 1 ms |
+| 2 | 916 ms | 914 ms | 約 2 ms |
+| 3 | 9,415 ms | 9,413 ms | 約 1 ms |
+| 4 | 644 ms | 642 ms | 約 2 ms |
+| 5 | 601 ms | 596 ms | 約 5 ms |
+
+中央値 916 ms（目標 800 ms）。**ブリッジ側の処理は数 ms で、待ち時間のほぼすべては OpenAI の最初のバイトまでの時間**だった。値は 0.6〜9.4 秒と大きくばらつく。先読みは効いており、2 文目の要求は 1 文目の最初のフレームを送った時点で出ている。目標の 800 ms は OpenAI 側の応答に左右されるため、ブリッジでは保証できない。速さを優先する場合は、端末の sanoTTS（`VOICE_MODE=device`）か、ローカルの TTS（`local-http` / `voicevox`）を使う。
+
+```sh
+OPENAI_API_KEY=keychain://OPENAI_API_KEY akc run -- \
+  npx vitest run bridge/test/tts-latency.test.ts
+```
+
+実 API テストは `skipIf(!OPENAI_API_KEY)`。起動時に接続を温め、同じ 2 文を `SpeechQueue.say` へ 5 回送り、各回の区間ログと最終中央値を標準出力に出す。中央値は記録だけ行い、合否には使わない（実 API の応答はネットワークとサーバーの混み具合で大きくばらつくため）。`TTS_MODEL=tts-1` を付ければ速度重視モデルも同じ条件で比較できる。偽端末は `tts.end` で done を返すため、実スピーカーの音が出るまでの時間は実機で別途確認する。
 
 ### VOICEVOX
 
